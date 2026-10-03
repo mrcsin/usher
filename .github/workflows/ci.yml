@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# Runs of one pull request share a group, so a newer push cancels the running one. Every other run
+# gets a group of its own: a queued master run is never cancelled or replaced.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  # amneziawg-linux-kernel-module tag v3.1.20260906.
+  AWG_MODULE_REF: 4569c4c67f3a57414969260cafbbd04694fbaae0
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: format chain
+        run: scripts/format.sh
+
+      - name: unit tests
+        run: go test -race -count=1 ./...
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh scripts/ci/*.sh scripts/git-hooks/pre-commit
+
+  e2e:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: load module
+        run: scripts/ci/module.sh
+
+      - name: e2e test
+        run: go test -tags e2e -count=1 -v ./test/e2e/

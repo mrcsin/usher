@@ -1,0 +1,10 @@
+.git
+.idea
+.vs
+.zed
+deploy
+docs
+test
+*.swp
+.DS_Store
+.e2e

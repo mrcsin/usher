@@ -1,0 +1,4 @@
+# User name: list of interface names. An empty list switches the user off.
+user1-phone: [awg0]
+user1-laptop: [awg0]
+guest: []
