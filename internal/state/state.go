@@ -126,7 +126,7 @@ func Load(path string) (*State, error) {
 		s.Xray = map[string]XrayEntry{}
 	}
 	for name, e := range s.AWG {
-		if err := validate(name, e); err != nil {
+		if err := validateAWG(name, e); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
@@ -141,9 +141,6 @@ func Load(path string) (*State, error) {
 // Save writes s to path atomically with mode 0600.
 func Save(path string, s *State) error {
 	s.Version = version
-	if s.Xray == nil {
-		s.Xray = map[string]XrayEntry{}
-	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding state: %w", err)
@@ -156,7 +153,7 @@ func Save(path string, s *State) error {
 func validateName(name string) error {
 	iface, user, ok := strings.Cut(name, "/")
 	if !ok || iface == "" || user == "" || strings.Contains(user, "/") {
-		return fmt.Errorf("entry %q: name is not interface/user", name)
+		return fmt.Errorf("entry %q: name is not group/user", name)
 	}
 	return nil
 }
@@ -171,7 +168,7 @@ func validateXray(name string, e XrayEntry) error {
 	return nil
 }
 
-func validate(name string, e Entry) error {
+func validateAWG(name string, e Entry) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
