@@ -18,58 +18,70 @@ func TestSettingsFrom(t *testing.T) {
 	}{
 		{
 			name: "one DNS address",
-			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"},
+			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
 			want: pass.Settings{
-				Host: netip.MustParseAddr("203.0.113.10"),
-				DNS:  []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+				Host:      netip.MustParseAddr("203.0.113.10"),
+				DNS:       []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+				AWGSocket: "/run/awg.sock",
 			},
 		},
 		{
 			name: "two DNS addresses",
-			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1, 1.0.0.1"},
+			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1, 1.0.0.1"},
 			want: pass.Settings{
-				Host: netip.MustParseAddr("203.0.113.10"),
-				DNS:  []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("1.0.0.1")},
+				Host:      netip.MustParseAddr("203.0.113.10"),
+				DNS:       []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("1.0.0.1")},
+				AWGSocket: "/run/awg.sock",
 			},
 		},
 		{
 			name:    "missing host",
-			env:     map[string]string{"USHER_DNS": "1.1.1.1"},
+			env:     map[string]string{"USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
 			wantErr: "USHER_HOST",
 		},
 		{
 			name:    "host name",
-			env:     map[string]string{"USHER_HOST": "vpn.example.com", "USHER_DNS": "1.1.1.1"},
+			env:     map[string]string{"USHER_HOST": "vpn.example.com", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
 			wantErr: "USHER_HOST",
 		},
 		{
 			name:    "IPv6 host",
-			env:     map[string]string{"USHER_HOST": "2001:db8::1", "USHER_DNS": "1.1.1.1"},
+			env:     map[string]string{"USHER_HOST": "2001:db8::1", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
 			wantErr: "USHER_HOST",
 		},
 		{
 			name:    "host with port",
-			env:     map[string]string{"USHER_HOST": "203.0.113.10:51820", "USHER_DNS": "1.1.1.1"},
+			env:     map[string]string{"USHER_HOST": "203.0.113.10:51820", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
 			wantErr: "USHER_HOST",
 		},
 		{
+			name:    "missing awg socket",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"},
+			wantErr: "USHER_AWG_SOCKET",
+		},
+		{
+			name:    "relative awg socket",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "awg.sock", "USHER_DNS": "1.1.1.1"},
+			wantErr: "USHER_AWG_SOCKET",
+		},
+		{
 			name:    "empty DNS",
-			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": ""},
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": ""},
 			wantErr: "USHER_DNS",
 		},
 		{
 			name:    "IPv6 DNS",
-			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "2606:4700:4700::1111"},
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "2606:4700:4700::1111"},
 			wantErr: "USHER_DNS",
 		},
 		{
 			name:    "DNS with port",
-			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1:53"},
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1:53"},
 			wantErr: "USHER_DNS",
 		},
 		{
 			name:    "empty DNS element",
-			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1,"},
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1,"},
 			wantErr: "USHER_DNS",
 		},
 	}
@@ -85,15 +97,16 @@ func TestSettingsFrom(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) {
-				t.Errorf("host/dns = %v %v, want %v %v", got.Host, got.DNS, tt.want.Host, tt.want.DNS)
+			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) || got.AWGSocket != tt.want.AWGSocket {
+				t.Errorf("host/dns/socket = %v %v %q, want %v %v %q",
+					got.Host, got.DNS, got.AWGSocket, tt.want.Host, tt.want.DNS, tt.want.AWGSocket)
 			}
 		})
 	}
 }
 
 func TestSettingsFromFixedPaths(t *testing.T) {
-	env := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"}
+	env := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}
 	got, err := settingsFrom(func(key string) string { return env[key] })
 	if err != nil {
 		t.Fatal(err)

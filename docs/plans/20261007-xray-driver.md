@@ -308,12 +308,12 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Modify: `cmd/usher/env_test.go`
 - Modify: `cmd/usher/main_test.go`
 
-- [ ] read `USHER_AWG_SOCKET` in `cmd/usher`, required and absolute
-- [ ] dial that path instead of `socketTarget` (`main.go:22,57-63`)
-- [ ] add `USHER_AWG_SOCKET: /run/awg-grpc/awg.sock` to `compose.example.yml:39-41` and
+- [x] read `USHER_AWG_SOCKET` in `cmd/usher`, required and absolute
+- [x] dial that path instead of `socketTarget` (`main.go:22,57-63`)
+- [x] add `USHER_AWG_SOCKET: /run/awg-grpc/awg.sock` to `compose.example.yml:39-41` and
       `compose.e2e.yml:35-37`
-- [ ] write tests: variable set, unset (error), relative path (error)
-- [ ] run `go test -race ./...` and the awg e2e - must pass before Task 2
+- [x] write tests: variable set, unset (error), relative path (error)
+- [x] run `go test -race ./...` and the awg e2e - must pass before Task 2
 
 ### Task 2: Introduce the backend seam with the awg driver
 
