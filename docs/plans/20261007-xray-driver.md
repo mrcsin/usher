@@ -490,13 +490,13 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify edge cases are handled
-- [ ] run full test suite: `go test -race -count=1 ./...`
-- [ ] run `scripts/format.sh`, `shellcheck scripts/*.sh scripts/ci/*.sh scripts/git-hooks/pre-commit`
+- [x] verify all requirements from Overview are implemented
+- [x] verify edge cases are handled
+- [x] run full test suite: `go test -race -count=1 ./...`
+- [x] run `scripts/format.sh`, `shellcheck scripts/*.sh scripts/ci/*.sh scripts/git-hooks/pre-commit`
       and `go run github.com/rhysd/actionlint/cmd/actionlint@latest`
-- [ ] run e2e tests: `go test -tags e2e -count=1 -v ./test/e2e/...` on a host with the module
-- [ ] verify test coverage meets project standard
+- [x] run e2e tests: `go test -tags e2e -count=1 -v ./test/e2e/...` on a host with the module (run in GitHub CI, run 37942456271 on 0ce0474: awg and Xray suites pass; no Docker or module on the dev host)
+- [x] verify test coverage meets project standard
 
 ### Task 11: [Final] Update documentation
 
