@@ -133,18 +133,29 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 	slices.Sort(added)
 	slices.Sort(updated)
 
+	var removedDone, addedDone []string
+	logPartial := func() {
+		if len(removedDone)+len(addedDone) > 0 {
+			s.log.Warn("users changed before a failure", "interface", name,
+				"removed", userNames(name, removedDone), "added", userNames(name, addedDone))
+		}
+	}
 	for _, email := range append(slices.Clone(removed), updated...) {
 		if err := s.alter(ctx, name, &command.RemoveUserOperation{Email: email}); err != nil {
+			logPartial()
 			return fmt.Errorf("removing user %s: %w", userOf(name, email), err)
 		}
+		removedDone = append(removedDone, email)
 	}
 	for _, email := range append(slices.Clone(added), updated...) {
 		operation := &command.AddUserOperation{User: &userproto.User{
 			Level: userLevel, Email: email, Account: desired[email],
 		}}
 		if err := s.alter(ctx, name, operation); err != nil {
+			logPartial()
 			return fmt.Errorf("adding user %s: %w", userOf(name, email), err)
 		}
+		addedDone = append(addedDone, email)
 	}
 
 	if len(removed)+len(added)+len(updated) > 0 {

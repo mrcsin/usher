@@ -17,7 +17,7 @@ func tcpStream(settings *serial.TypedMessage) *internet.StreamConfig {
 }
 
 func TestDecodeTCP(t *testing.T) {
-	noop := &serial.TypedMessage{Type: "xray.transport.internet.headers.noop.Config"}
+	noop := &serial.TypedMessage{Type: "xray.transport.internet.headers.noop.ConnectionConfig"}
 	http := &serial.TypedMessage{Type: "xray.transport.internet.headers.http.Config"}
 	tests := []struct {
 		name    string
@@ -27,6 +27,10 @@ func TestDecodeTCP(t *testing.T) {
 		{name: "no transport settings", stream: &internet.StreamConfig{ProtocolName: "tcp"}},
 		{name: "settings without header", stream: tcpStream(toTypedMessage(&tcp.Config{}))},
 		{name: "no-op header", stream: tcpStream(toTypedMessage(&tcp.Config{HeaderSettings: noop}))},
+		{name: "settings of another transport", stream: &internet.StreamConfig{
+			ProtocolName:      "tcp",
+			TransportSettings: []*internet.TransportConfig{{ProtocolName: "websocket", Settings: &serial.TypedMessage{Type: "xray.other.Config"}}},
+		}},
 		{name: "http header", stream: tcpStream(toTypedMessage(&tcp.Config{HeaderSettings: http})), wantErr: "header"},
 		{name: "foreign settings type", stream: tcpStream(&serial.TypedMessage{Type: "xray.other.Config"}), wantErr: "xray.other.Config"},
 		{name: "garbled settings", stream: tcpStream(&serial.TypedMessage{Type: typeName(&tcp.Config{}), Value: []byte{0xff}}), wantErr: "decoding tcp settings"},

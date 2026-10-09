@@ -19,6 +19,7 @@ import (
 	vlessinbound "github.com/mrcsin/usher/gen/xray/proxy/vless/inbound"
 	"github.com/mrcsin/usher/gen/xray/transport/internet"
 	"github.com/mrcsin/usher/gen/xray/transport/internet/reality"
+	"github.com/mrcsin/usher/gen/xray/transport/internet/tcp"
 )
 
 // fakeHandlerService implements command.HandlerServiceClient with func fields.
@@ -95,6 +96,16 @@ func TestListInbounds(t *testing.T) {
 		}
 	})
 
+	t.Run("untagged inbound is skipped", func(t *testing.T) {
+		got, err := listInbounds(t.Context(), listOf(inboundConfig("", portList(443, 443), realityStream(t))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("inbounds = %+v, want none", got)
+		}
+	})
+
 	t.Run("list error", func(t *testing.T) {
 		client := &fakeHandlerService{inbounds: func() (*command.ListInboundsResponse, error) {
 			return nil, errors.New("unavailable")
@@ -110,9 +121,21 @@ func TestListInboundsFailsUnsupportedShapes(t *testing.T) {
 	noSecurity.SecurityType = ""
 	noSecurity.SecuritySettings = nil
 	tls := realityStream(t)
-	tls.SecurityType = "tls"
+	tls.SecurityType = "xray.transport.internet.tls.Config"
 	websocket := realityStream(t)
 	websocket.ProtocolName = "websocket"
+
+	tcpMask := realityStream(t)
+	tcpMask.Tcpmasks = []*serial.TypedMessage{{Type: "xray.transport.internet.finalmask.header.Config"}}
+	udpMask := realityStream(t)
+	udpMask.Udpmasks = []*serial.TypedMessage{{Type: "xray.transport.internet.finalmask.header.Config"}}
+	httpHeader := realityStream(t)
+	httpHeader.TransportSettings = []*internet.TransportConfig{{
+		ProtocolName: "tcp",
+		Settings: toTypedMessage(&tcp.Config{
+			HeaderSettings: &serial.TypedMessage{Type: "xray.transport.internet.headers.http.Config"},
+		}),
+	}}
 
 	wrongReceiver := inboundConfig("a", portList(443, 443), realityStream(t))
 	wrongReceiver.ReceiverSettings = toTypedMessage(&vlessinbound.Config{})
@@ -131,8 +154,11 @@ func TestListInboundsFailsUnsupportedShapes(t *testing.T) {
 		{name: "undecodable vless settings", config: garbledProxy, wantErr: "decoding vless settings"},
 		{name: "port range", config: inboundConfig("a", portList(443, 450), realityStream(t)), wantErr: "port"},
 		{name: "no port", config: inboundConfig("a", nil, realityStream(t)), wantErr: "port"},
-		{name: "tls security", config: inboundConfig("a", portList(443, 443), tls), wantErr: `security "tls"`},
+		{name: "tls security", config: inboundConfig("a", portList(443, 443), tls), wantErr: `security "xray.transport.internet.tls.Config"`},
 		{name: "empty security is named none", config: inboundConfig("a", portList(443, 443), noSecurity), wantErr: `security "none"`},
+		{name: "tcp finalmask", config: inboundConfig("a", portList(443, 443), tcpMask), wantErr: "finalmask"},
+		{name: "udp finalmask", config: inboundConfig("a", portList(443, 443), udpMask), wantErr: "finalmask"},
+		{name: "http header", config: inboundConfig("a", portList(443, 443), httpHeader), wantErr: "header"},
 		{name: "websocket transport", config: inboundConfig("a", portList(443, 443), websocket), wantErr: `transport "websocket"`},
 	}
 	for _, tt := range tests {
@@ -170,7 +196,7 @@ func TestInboundErrorsNeverContainPrivateKey(t *testing.T) {
 	garbled := realityStream(t)
 	garbled.SecuritySettings[0].Value = append(garbled.SecuritySettings[0].Value, 0xff)
 	tls := realityStream(t)
-	tls.SecurityType = "tls"
+	tls.SecurityType = "xray.transport.internet.tls.Config"
 
 	streams := map[string]*internet.StreamConfig{
 		"no server names": {ProtocolName: "tcp", SecurityType: typeName(&reality.Config{}), SecuritySettings: realitySettings(t, bad)},

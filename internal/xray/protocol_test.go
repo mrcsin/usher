@@ -6,14 +6,15 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	userproto "github.com/mrcsin/usher/gen/xray/common/protocol"
 	vlessaccount "github.com/mrcsin/usher/gen/xray/proxy/vless"
 	vlessinbound "github.com/mrcsin/usher/gen/xray/proxy/vless/inbound"
 	"github.com/mrcsin/usher/internal/state"
 )
 
-func vlessSettings(t *testing.T, decryption string) []byte {
+func vlessSettings(t *testing.T, decryption string, users ...*userproto.User) []byte {
 	t.Helper()
-	value, err := proto.Marshal(&vlessinbound.Config{Decryption: decryption})
+	value, err := proto.Marshal(&vlessinbound.Config{Decryption: decryption, Users: users})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func TestDecodeVLESS(t *testing.T) {
 		{name: "tcp and reality", decryption: "none", transport: "tcp", security: "reality"},
 		{name: "other decryption", decryption: "mlkem768x25519plus.native.0rtt", transport: "tcp", security: "reality", wantErr: "decryption"},
 		{name: "empty decryption", decryption: "", transport: "tcp", security: "reality", wantErr: "decryption"},
-		{name: "other transport", decryption: "none", transport: "ws", security: "reality", wantErr: `"ws"`},
+		{name: "other transport", decryption: "none", transport: "websocket", security: "reality", wantErr: `"websocket"`},
 		{name: "other security", decryption: "none", transport: "tcp", security: "tls", wantErr: `"tls"`},
 	}
 	for _, tt := range tests {
@@ -47,6 +48,13 @@ func TestDecodeVLESS(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestDecodeVLESSRejectsStartupClients(t *testing.T) {
+	_, err := decodeVLESS(vlessSettings(t, "none", &userproto.User{Email: "startup"}), "tcp", "reality")
+	if err == nil || !strings.Contains(err.Error(), "clients") {
+		t.Fatalf("error = %v, want one naming clients", err)
 	}
 }
 

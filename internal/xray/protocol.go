@@ -56,16 +56,22 @@ func decodeVLESS(settings []byte, transport, security string) (protocol, error) 
 	if err := proto.Unmarshal(settings, &config); err != nil {
 		return protocol{}, fmt.Errorf("decoding vless settings: %w", err)
 	}
+	if len(config.GetUsers()) > 0 {
+		return protocol{}, errors.New("vless clients must be empty: usher owns the users")
+	}
 	if config.GetDecryption() != decryptionNone {
 		return protocol{}, errors.New(`vless decryption is not "none"`)
 	}
 	if transport != transportTCP || security != securityReality {
 		return protocol{}, fmt.Errorf("vless over transport %q with security %q is not supported", transport, security)
 	}
+	flow := flowVision
 	return protocol{
 		account: func(e state.XrayEntry) *serial.TypedMessage {
-			return toTypedMessage(&vlessaccount.Account{Id: e.ID.String(), Flow: flowVision})
+			return toTypedMessage(&vlessaccount.Account{Id: e.ID.String(), Flow: flow})
 		},
-		link: vlessLink,
+		link: func(e state.XrayEntry, user string, host netip.Addr, port uint16, params url.Values) string {
+			return vlessLink(e, user, flow, host, port, params)
+		},
 	}, nil
 }

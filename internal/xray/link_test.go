@@ -29,7 +29,7 @@ func TestVLESSLinkGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := vlessLink(linkEntry, "alice", netip.MustParseAddr("203.0.113.7"), 443, linkParams("ab")) + "\n"
+	got := vlessLink(linkEntry, "alice", flowVision, netip.MustParseAddr("203.0.113.7"), 443, linkParams("ab")) + "\n"
 	if got != string(want) {
 		t.Errorf("link differs from testdata/vless.txt:\n%s", got)
 	}
@@ -49,7 +49,7 @@ func TestVLESSLinkParts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			link := vlessLink(linkEntry, tt.user, netip.MustParseAddr(tt.host), 443, linkParams(tt.sid))
+			link := vlessLink(linkEntry, tt.user, flowVision, netip.MustParseAddr(tt.host), 443, linkParams(tt.sid))
 			for _, part := range tt.want {
 				if !strings.Contains(link, part) {
 					t.Errorf("link %q does not contain %q", link, part)

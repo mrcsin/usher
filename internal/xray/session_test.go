@@ -286,6 +286,13 @@ func TestSameAccount(t *testing.T) {
 	if !sameAccount(explicit, vlessAccount(id, flowVision)) {
 		t.Error("equal accounts differ")
 	}
+	if sameAccount(vlessAccount(id, flowVision), &serial.TypedMessage{Type: "xray.proxy.trojan.Account"}) {
+		t.Error("accounts of different types are equal")
+	}
+	garbled := &serial.TypedMessage{Type: typeName(&vlessaccount.Account{}), Value: []byte{0xff}}
+	if sameAccount(garbled, vlessAccount(id, flowVision)) || sameAccount(vlessAccount(id, flowVision), garbled) {
+		t.Error("an undecodable account equals a valid one")
+	}
 	if sameAccount(&serial.TypedMessage{Type: "unknown.Type"}, &serial.TypedMessage{Type: "unknown.Type"}) {
 		t.Error("an unknown type equals itself")
 	}
@@ -301,6 +308,9 @@ func TestApplyConvergesAfterPartialFailure(t *testing.T) {
 	}
 	if env.accountOf("vless", "alice") == nil || env.accountOf("vless", "bob") != nil {
 		t.Fatalf("users = %v", slices.Collect(maps.Keys(env.xray.users["vless"])))
+	}
+	if !strings.Contains(env.logs.String(), "users changed before a failure") || !strings.Contains(env.logs.String(), "added=[alice]") {
+		t.Errorf("logs = %q", env.logs.String())
 	}
 
 	env.xray.failAdd = ""

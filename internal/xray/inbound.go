@@ -38,6 +38,9 @@ func listInbounds(ctx context.Context, client command.HandlerServiceClient) ([]i
 		if !ok {
 			continue
 		}
+		if config.GetTag() == "" {
+			continue
+		}
 		in, err := decodeInbound(config, decodeProtocol)
 		if err != nil {
 			in = inbound{tag: config.GetTag(), err: err}
@@ -69,6 +72,9 @@ func decodeInbound(config *core.InboundHandlerConfig, decodeProtocol func([]byte
 	params, err := decodeTransport(stream)
 	if err != nil {
 		return inbound{}, err
+	}
+	if len(stream.GetTcpmasks())+len(stream.GetUdpmasks()) > 0 {
+		return inbound{}, errors.New("finalmask is not supported")
 	}
 	securityName := stream.GetSecurityType()
 	decodeSecurity, ok := securities[securityName]
