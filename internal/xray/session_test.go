@@ -32,7 +32,11 @@ type fakeXray struct {
 	users   map[string]map[string]*serial.TypedMessage
 	// failAdd names an email whose AddUserOperation fails.
 	failAdd string
-	calls   []string
+	// failRemove names an email whose RemoveUserOperation fails.
+	failRemove string
+	// failUsers makes GetInboundUsers fail.
+	failUsers bool
+	calls     []string
 }
 
 func newFakeXray(configs ...*core.InboundHandlerConfig) *fakeXray {
@@ -48,6 +52,9 @@ func (f *fakeXray) ListInbounds(context.Context, *command.ListInboundsRequest, .
 }
 
 func (f *fakeXray) GetInboundUsers(_ context.Context, in *command.GetInboundUserRequest, _ ...grpc.CallOption) (*command.GetInboundUserResponse, error) {
+	if f.failUsers {
+		return nil, errors.New("xray cannot list users")
+	}
 	var response command.GetInboundUserResponse
 	for _, email := range slices.Sorted(maps.Keys(f.users[in.GetTag()])) {
 		response.Users = append(response.Users, &userproto.User{Email: email, Account: f.users[in.GetTag()][email]})
@@ -75,6 +82,9 @@ func (f *fakeXray) AlterInbound(_ context.Context, in *command.AlterInboundReque
 			return nil, err
 		}
 		f.calls = append(f.calls, "remove "+remove.GetEmail())
+		if remove.GetEmail() == f.failRemove {
+			return nil, errors.New("xray refused " + remove.GetEmail())
+		}
 		delete(f.users[in.GetTag()], remove.GetEmail())
 	default:
 		return nil, errors.New("unexpected operation " + operation.GetType())
@@ -300,6 +310,35 @@ func TestApplyConvergesAfterPartialFailure(t *testing.T) {
 	if env.accountOf("vless", "bob") == nil {
 		t.Error("bob is missing after the next pass")
 	}
+}
+
+func TestApplyFailsOnXrayErrors(t *testing.T) {
+	t.Run("listing users", func(t *testing.T) {
+		env := newSessionEnv(t, twoInbounds(t))
+		env.xray.failUsers = true
+		err := env.pass("vless", "alice")
+		if err == nil || !strings.Contains(err.Error(), "getting users") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("removing a user", func(t *testing.T) {
+		env := newSessionEnv(t, twoInbounds(t))
+		if err := env.pass("vless", "alice", "bob"); err != nil {
+			t.Fatal(err)
+		}
+		env.xray.failRemove = "vless/bob"
+		err := env.pass("vless", "alice")
+		if err == nil || !strings.Contains(err.Error(), "removing user bob") {
+			t.Fatalf("error = %v", err)
+		}
+		env.xray.failRemove = ""
+		if err := env.pass("vless", "alice"); err != nil {
+			t.Fatal(err)
+		}
+		if env.accountOf("vless", "bob") != nil {
+			t.Error("bob is still present after the next pass")
+		}
+	})
 }
 
 func TestPrepareFailsUndecodableInbound(t *testing.T) {

@@ -114,11 +114,21 @@ func TestListInboundsFailsUnsupportedShapes(t *testing.T) {
 	websocket := realityStream(t)
 	websocket.ProtocolName = "websocket"
 
+	wrongReceiver := inboundConfig("a", portList(443, 443), realityStream(t))
+	wrongReceiver.ReceiverSettings = toTypedMessage(&vlessinbound.Config{})
+	garbledReceiver := inboundConfig("a", portList(443, 443), realityStream(t))
+	garbledReceiver.ReceiverSettings = &serial.TypedMessage{Type: typeName(&proxyman.ReceiverConfig{}), Value: []byte{0xff}}
+	garbledProxy := inboundConfig("a", portList(443, 443), realityStream(t))
+	garbledProxy.ProxySettings = &serial.TypedMessage{Type: typeName(&vlessinbound.Config{}), Value: []byte{0xff}}
+
 	tests := []struct {
 		name    string
 		config  *core.InboundHandlerConfig
 		wantErr string
 	}{
+		{name: "receiver of another type", config: wrongReceiver, wantErr: "receiver settings have type"},
+		{name: "undecodable receiver", config: garbledReceiver, wantErr: "decoding receiver settings"},
+		{name: "undecodable vless settings", config: garbledProxy, wantErr: "decoding vless settings"},
 		{name: "port range", config: inboundConfig("a", portList(443, 450), realityStream(t)), wantErr: "port"},
 		{name: "no port", config: inboundConfig("a", nil, realityStream(t)), wantErr: "port"},
 		{name: "tls security", config: inboundConfig("a", portList(443, 443), tls), wantErr: `security "tls"`},
