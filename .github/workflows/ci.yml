@@ -64,3 +64,6 @@ jobs:
 
       - name: e2e test
         run: go test -tags e2e -count=1 -v ./test/e2e/
+
+      - name: xray e2e test
+        run: go test -tags e2e -count=1 -v ./test/e2e/xray/
