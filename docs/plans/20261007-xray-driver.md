@@ -526,3 +526,25 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 
 **Follow-up**
 - per-user metrics (issue #1) for both backends; `StatsService` joins the delivery contract then
+
+**Executed by exec:**
+- branch: xray-driver
+
+## Verify it yourself
+
+1. Unit tests and the format chain, on any machine with Go 1.27.1:
+   `go test -race -count=1 ./...` and `scripts/format.sh` both exit 0 on `7758893`.
+2. Both e2e suites, on Linux with Docker and the `amneziawg` module, or in CI:
+   `go test -tags e2e -count=1 -v ./test/e2e/...`. CI run 37949266510 on `7758893` shows
+   `TestE2E` (enroll, handshake, switch_off, broken_file_and_refill) and `TestXray` (connect,
+   switch_off, refill) as PASS. `master` (`876b208`) has no `test/e2e/xray` package, so there is no
+   failing pre-change run to compare; before this branch an Xray tag in `usher.yml` only logged
+   "interface is not reported by awg-grpc" (`pass.go:211` on `master`).
+3. Xray behaviour in the e2e, step by step: two users get a link each and an HTTP request through
+   each link returns 200; after `bob` leaves `usher.yml`, usher logs `removed=[bob]` and three
+   fetches through his link fail while `alice` still works; after `docker compose restart xray`,
+   `alice` works again within 60 s, `bob` stays off, and one more refill tick logs no
+   `users changed`.
+4. By hand, once: import one rendered `clients/<user>/<tag>.txt` link into v2rayNG or Streisand and
+   open a page. No automated check covers how phone clients parse the trimmed `sid` and the `%20`
+   escaping.
