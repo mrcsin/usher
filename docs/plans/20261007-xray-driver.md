@@ -350,14 +350,14 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Modify: `internal/state/state.go`
 - Modify: `internal/state/state_test.go`
 
-- [ ] add `Xray map[string]XrayEntry` with `json:"xray"`; `XrayEntry{ID uuid.UUID}`
-- [ ] bump `version` to 2; `Load` accepts 1 and 2 (`state.go:107`), `Save` writes 2
-- [ ] validate xray entry names as `tag/user` and reject a zero UUID; errors never quote the UUID
-- [ ] reword the doc comment at `state.go:71`; keep `Entry`, `EntryName` and `Entry.Route`, which
+- [x] add `Xray map[string]XrayEntry` with `json:"xray"`; `XrayEntry{ID uuid.UUID}`
+- [x] bump `version` to 2; `Load` accepts 1 and 2 (`state.go:107`), `Save` writes 2
+- [x] validate xray entry names as `tag/user` and reject a zero UUID; errors never quote the UUID
+- [x] reword the doc comment at `state.go:71`; keep `Entry`, `EntryName` and `Entry.Route`, which
       `test/e2e/e2e_test.go:24,406` uses
-- [ ] write tests: load version 1 (empty `xray`), load version 2, reject version 3, reject a zero
+- [x] write tests: load version 1 (empty `xray`), load version 2, reject version 3, reject a zero
       UUID, save and load round trip, no UUID in any error text
-- [ ] run `go test -race ./...` - must pass before Task 4
+- [x] run `go test -race ./...` - must pass before Task 4
 
 ### Task 4: Vendor the Xray protos and generate code
 
