@@ -14,8 +14,9 @@
   `users.json` moves to version 2, which the previous image refuses to load. The release is
   marked with `!`.
 - Scope of the Xray driver: VLESS over raw TCP without a header, with Reality security and
-  `decryption: none`. Any other security, transport, header, decryption or a port range fails
-  that inbound with an error that names the field. The driver is laid out so that more shapes
+  `decryption: none`. Any other security, transport, header, decryption, a port range, a
+  `finalmask` or startup `clients` fails that inbound with an error that names the field; an
+  inbound without a tag is skipped. The driver is laid out so that more shapes
   can be added later (Solution Overview, "Room for more inbound shapes").
 
 ## Context (from discovery)
@@ -255,10 +256,11 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
   ```
   An empty `security_type` is named `none` in errors.
 - **Inbound reading.** `ListInbounds{isOnlyTags: false}`, then per inbound:
-  - `proxy_settings.type` must have an entry in `protocols`; an inbound without one is not an
-    usher interface and is skipped silently. The VLESS entry requires `decryption` `none` and sets
-    the flow.
+  - `proxy_settings.type` must have an entry in `protocols`; an inbound without one, or without a
+    tag, is not an usher interface and is skipped silently. The VLESS entry requires `decryption`
+    `none` and no startup `clients`, and sets the flow.
   - The receiver port list must hold one range with `From == To`.
+  - The stream settings must carry no `finalmask` (`tcpmasks`, `udpmasks`).
   - The `tcp` transport entry accepts all three header forms of raw TCP and fails any other
     header. Verified against Xray v26.9.9: the no-op header arrives as
     `xray.transport.internet.headers.noop.ConnectionConfig`; the entry accepts any message of the
@@ -277,7 +279,7 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - **Link file.** `clients/<user>/<tag>.txt`, mode 0600, one line built by the protocol entry:
   `vless://<id>@<USHER_HOST>:<port>?<params>#<user>`, where `params` merges the protocol's
   `encryption=none` and `flow`, the transport's `type=tcp` and the security's `security=reality`,
-  `sni`, `fp=chrome`, `pbk`, `sid`, encoded by `url.Values.Encode`.
+  `sni`, `fp=chrome`, `pbk`, `sid`, encoded by `url.Values.Encode` with spaces written as `%20`.
   ASSUMPTION: these parameter names and values are the share-link format phone clients import;
   Task 7 pins them against the public proposal.
 - **Client file suffix per backend.** `clients.Path` and `clients.Existing` take the backend's
