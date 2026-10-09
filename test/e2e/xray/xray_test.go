@@ -264,7 +264,7 @@ func writeClientConfig(t *testing.T, user, link string) {
 	}
 	query := parsed.Query()
 	config := map[string]any{
-		"log": map[string]any{"loglevel": "debug"},
+		"log": map[string]any{"loglevel": "warning"},
 		"inbounds": []any{map[string]any{
 			"listen":   "0.0.0.0",
 			"port":     8080,

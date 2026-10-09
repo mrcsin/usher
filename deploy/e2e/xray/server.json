@@ -1,5 +1,5 @@
 {
-  "log": { "loglevel": "debug" },
+  "log": { "loglevel": "warning" },
   "api": {
     "tag": "api",
     "listen": "/run/xray/api.sock,0660",
@@ -28,6 +28,14 @@
     }
   ],
   "outbounds": [
-    { "tag": "direct", "protocol": "freedom" }
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          { "action": "allow", "ip": ["172.30.98.3/32"] }
+        ]
+      }
+    }
   ]
 }
