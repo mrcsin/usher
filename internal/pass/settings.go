@@ -7,6 +7,7 @@ import "net/netip"
 type Settings struct {
 	Host       netip.Addr   // USHER_HOST
 	DNS        []netip.Addr // USHER_DNS
+	AWGSocket  string       // USHER_AWG_SOCKET
 	ConfigPath string
 	ClientsDir string
 	StatePath  string

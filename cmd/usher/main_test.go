@@ -16,7 +16,7 @@ import (
 )
 
 func TestRun(t *testing.T) {
-	validEnv := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"}
+	validEnv := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}
 	tests := []struct {
 		name       string
 		args       []string
@@ -27,8 +27,8 @@ func TestRun(t *testing.T) {
 		{name: "no argument", args: nil, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "unknown argument", args: []string{"serve"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "extra argument", args: []string{"run", "x"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
-		{name: "missing host", args: []string{"run"}, env: map[string]string{"USHER_DNS": "1.1.1.1"}, wantCode: 1, wantStderr: "USHER_HOST"},
-		{name: "bad dns", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "dns.example"}, wantCode: 1, wantStderr: "USHER_DNS"},
+		{name: "missing host", args: []string{"run"}, env: map[string]string{"USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}, wantCode: 1, wantStderr: "USHER_HOST"},
+		{name: "bad dns", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "dns.example"}, wantCode: 1, wantStderr: "USHER_DNS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

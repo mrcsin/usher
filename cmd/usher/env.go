@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"strings"
 
 	"github.com/mrcsin/usher/internal/pass"
@@ -20,6 +21,11 @@ func settingsFrom(getenv func(string) string) (pass.Settings, error) {
 		return pass.Settings{}, err
 	}
 
+	awgSocket, err := parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET"))
+	if err != nil {
+		return pass.Settings{}, err
+	}
+
 	var dns []netip.Addr
 	for _, field := range strings.Split(getenv("USHER_DNS"), ",") {
 		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
@@ -32,6 +38,7 @@ func settingsFrom(getenv func(string) string) (pass.Settings, error) {
 	return pass.Settings{
 		Host:       host,
 		DNS:        dns,
+		AWGSocket:  awgSocket,
 		ConfigPath: configPath,
 		ClientsDir: clientsPath,
 		StatePath:  statePath,
@@ -47,4 +54,14 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("%s: %q is not an IPv4 address", name, value)
 	}
 	return addr, nil
+}
+
+func parseSocketPath(name, value string) (string, error) {
+	if value == "" {
+		return "", fmt.Errorf("%s is required", name)
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("%s: %q is not an absolute path", name, value)
+	}
+	return value, nil
 }

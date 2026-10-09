@@ -19,8 +19,6 @@ import (
 	"github.com/mrcsin/usher/internal/watch"
 )
 
-const socketTarget = "unix:///run/awg-grpc/awg.sock"
-
 // version is set at build time with -X main.version.
 var version = "dev"
 
@@ -41,7 +39,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		return 1
 	}
 
-	return serve(ctx, settings, dialSocket, stderr)
+	return serve(ctx, settings, dialSocket(settings.AWGSocket), stderr)
 }
 
 func serve(ctx context.Context, settings pass.Settings, dial pass.Dial, stderr io.Writer) int {
@@ -54,10 +52,13 @@ func serve(ctx context.Context, settings pass.Settings, dial pass.Dial, stderr i
 	return 0
 }
 
-func dialSocket() (awgv1.ManagementServiceClient, func(), error) {
-	conn, err := grpc.NewClient(socketTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening %s: %w", socketTarget, err)
+func dialSocket(path string) pass.Dial {
+	target := "unix://" + path
+	return func() (awgv1.ManagementServiceClient, func(), error) {
+		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, nil, fmt.Errorf("opening %s: %w", target, err)
+		}
+		return awgv1.NewManagementServiceClient(conn), func() { _ = conn.Close() }, nil
 	}
-	return awgv1.NewManagementServiceClient(conn), func() { _ = conn.Close() }, nil
 }
