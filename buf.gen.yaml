@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/mrcsin/usher/gen/xray
+plugins:
+  - local: ["go", "tool", "-modfile=tools/go.mod", "protoc-gen-go"]
+    out: gen/xray
+    opt: paths=source_relative
+  - local: ["go", "tool", "-modfile=tools/go.mod", "protoc-gen-go-grpc"]
+    out: gen/xray
+    opt: paths=source_relative

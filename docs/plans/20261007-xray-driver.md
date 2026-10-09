@@ -371,21 +371,21 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Modify: `scripts/format.sh`
 - Modify: `.github/workflows/ci.yml` (`tools/go.sum` in `cache-dependency-path`)
 
-- [ ] copy the closure of `command.proto`, `app/proxyman/config.proto`,
+- [x] copy the closure of `command.proto`, `app/proxyman/config.proto`,
       `proxy/vless/inbound/config.proto`, `proxy/vless/account.proto`,
       `transport/internet/reality/config.proto`, `transport/internet/config.proto` and
       `transport/internet/tcp/config.proto`
-- [ ] `buf.yaml` with the module at `proto/xray`; `buf.gen.yaml` with `out: gen/xray`,
+- [x] `buf.yaml` with the module at `proto/xray`; `buf.gen.yaml` with `out: gen/xray`,
       `paths=source_relative` and managed `go_package_prefix: github.com/mrcsin/usher/gen/xray`,
       so every proto package keeps its own Go package
-- [ ] add the tools module pinning buf, `protoc-gen-go`, `protoc-gen-go-grpc`, as in
+- [x] add the tools module pinning buf, `protoc-gen-go`, `protoc-gen-go-grpc`, as in
       `awg-grpc/tools/go.mod:5-9`
-- [ ] extend `scripts/format.sh` to check that `gen/` equals `buf generate`; it runs no `buf lint`,
+- [x] extend `scripts/format.sh` to check that `gen/` equals `buf generate`; it runs no `buf lint`,
       unlike `awg-grpc/scripts/format.sh:26`, because the vendored files are not usher's and fail
       the default rules
-- [ ] no unit test in this task: it adds generated code only; `scripts/format.sh`, `go build ./...`
+- [x] no unit test in this task: it adds generated code only; `scripts/format.sh`, `go build ./...`
       and `docker build .` verify it, and Tasks 5 and 6 exercise the types
-- [ ] run `scripts/format.sh`, `go test -race ./...` and `docker build .` - must pass before Task 5
+- [x] run `scripts/format.sh`, `go test -race ./...` and `docker build .` - must pass before Task 5
 
 ### Task 5: Read inbounds through the decoder tables
 
