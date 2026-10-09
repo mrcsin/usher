@@ -1,5 +1,4 @@
-// Package clients renders AmneziaWG client configs and mirrors them into the clients directory.
-package clients
+package awg
 
 import (
 	"encoding/base64"

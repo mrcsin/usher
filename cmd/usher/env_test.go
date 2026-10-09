@@ -5,21 +5,19 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/mrcsin/usher/internal/pass"
 )
 
-func TestSettingsFrom(t *testing.T) {
+func TestEnvironmentFrom(t *testing.T) {
 	tests := []struct {
 		name    string
 		env     map[string]string
-		want    pass.Settings
+		want    environment
 		wantErr string
 	}{
 		{
 			name: "one DNS address",
 			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"},
-			want: pass.Settings{
+			want: environment{
 				Host:      netip.MustParseAddr("203.0.113.10"),
 				DNS:       []netip.Addr{netip.MustParseAddr("1.1.1.1")},
 				AWGSocket: "/run/awg.sock",
@@ -28,7 +26,7 @@ func TestSettingsFrom(t *testing.T) {
 		{
 			name: "two DNS addresses",
 			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1, 1.0.0.1"},
-			want: pass.Settings{
+			want: environment{
 				Host:      netip.MustParseAddr("203.0.113.10"),
 				DNS:       []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("1.0.0.1")},
 				AWGSocket: "/run/awg.sock",
@@ -87,7 +85,7 @@ func TestSettingsFrom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := settingsFrom(func(key string) string { return tt.env[key] })
+			got, err := environmentFrom(func(key string) string { return tt.env[key] })
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want it to name %s", err, tt.wantErr)
@@ -105,9 +103,9 @@ func TestSettingsFrom(t *testing.T) {
 	}
 }
 
-func TestSettingsFromFixedPaths(t *testing.T) {
+func TestEnvironmentFromFixedPaths(t *testing.T) {
 	env := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}
-	got, err := settingsFrom(func(key string) string { return env[key] })
+	got, err := environmentFrom(func(key string) string { return env[key] })
 	if err != nil {
 		t.Fatal(err)
 	}

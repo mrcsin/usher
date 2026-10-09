@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/mrcsin/usher/internal/awg"
 	"github.com/mrcsin/usher/internal/pass"
 	"github.com/mrcsin/usher/internal/watch"
 )
@@ -33,26 +34,42 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		fmt.Fprintln(stderr, "usage: usher run")
 		return 2
 	}
-	settings, err := settingsFrom(getenv)
+	env, err := environmentFrom(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "usher:", err)
 		return 1
 	}
 
-	return serve(ctx, settings, dialSocket(settings.AWGSocket), stderr)
+	log := slog.New(slog.NewTextHandler(stderr, nil))
+	backends := []pass.Backend{awgBackend(env, log)}
+	return serve(ctx, env.Settings, backends, log)
 }
 
-func serve(ctx context.Context, settings pass.Settings, dial pass.Dial, stderr io.Writer) int {
-	log := slog.New(slog.NewTextHandler(stderr, nil))
+func serve(ctx context.Context, settings pass.Settings, backends []pass.Backend, log *slog.Logger) int {
 	log.Info("usher starting", "version", version)
-	p := pass.New(settings, dial, log)
+	p := pass.New(settings, backends, log)
 	intervals := watch.Intervals{Poll: 3 * time.Second, Settle: 500 * time.Millisecond, Refill: 30 * time.Second}
 	watch.New(settings.ConfigPath, intervals, p.Run).Run(ctx)
 	log.Info("usher stopped")
 	return 0
 }
 
-func dialSocket(path string) pass.Dial {
+func awgBackend(env environment, log *slog.Logger) pass.Backend {
+	dial := dialSocket(env.AWGSocket)
+	return pass.Backend{
+		Name:   "awg-grpc",
+		Suffix: awg.Suffix,
+		Open: func(ctx context.Context) (pass.Session, error) {
+			session, err := awg.Open(ctx, dial, env.Host, env.DNS, log)
+			if err != nil {
+				return nil, err
+			}
+			return session, nil
+		},
+	}
+}
+
+func dialSocket(path string) awg.Dial {
 	target := "unix://" + path
 	return func() (awgv1.ManagementServiceClient, func(), error) {
 		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))

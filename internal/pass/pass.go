@@ -2,43 +2,45 @@ package pass
 
 import (
 	"context"
-	"encoding/base64"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
-	"time"
-
-	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
+	"strings"
 
 	"github.com/mrcsin/usher/internal/clients"
 	"github.com/mrcsin/usher/internal/config"
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// callTimeout bounds each call to awg-grpc.
-const callTimeout = 10 * time.Second
-
-// Dial opens a connection to awg-grpc. It returns the client and the function that closes the
-// connection.
-type Dial func() (awgv1.ManagementServiceClient, func(), error)
-
 // Pass runs reconcile passes. It keeps the last valid usher.yml it read.
 type Pass struct {
 	settings Settings
-	dial     Dial
+	backends []Backend
 	log      *slog.Logger
 	last     map[string][]string
 }
 
-// New returns a Pass that works with the paths and server facts in settings.
-func New(settings Settings, dial Dial, log *slog.Logger) *Pass {
-	return &Pass{settings: settings, dial: dial, log: log}
+// New returns a Pass that works with the paths in settings and moves users into backends.
+func New(settings Settings, backends []Backend, log *slog.Logger) *Pass {
+	return &Pass{settings: settings, backends: backends, log: log}
+}
+
+// openBackend is a backend with its session for this pass.
+type openBackend struct {
+	Backend
+	session Session
+}
+
+// interfaceKey identifies an interface of one backend, by the backend's index in the open list.
+type interfaceKey struct {
+	backend int
+	name    string
 }
 
 // Run executes one pass. It logs every failure and never panics on one; a failure of one
-// interface leaves the others to apply.
+// interface leaves the others to apply, and a backend that is down leaves the other backends to
+// apply.
 func (p *Pass) Run(ctx context.Context) {
 	cfg, ok := p.loadConfig()
 	if !ok {
@@ -49,37 +51,36 @@ func (p *Pass) Run(ctx context.Context) {
 		p.log.Error("loading state", "error", err)
 		return
 	}
-	client, closeConn, err := p.dial()
-	if err != nil {
-		p.log.Error("connecting to awg-grpc", "error", err)
-		return
-	}
-	defer closeConn()
-
-	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-	status, err := client.GetStatus(callCtx, &awgv1.GetStatusRequest{})
-	cancel()
-	if err != nil {
-		p.log.Error("getting status", "error", err)
-		return
-	}
+	open, down := p.openBackends(ctx)
+	defer func() {
+		for _, b := range open {
+			b.session.Close()
+		}
+	}()
 
 	byInterface := usersByInterface(cfg)
-	reported := make(map[string]bool, len(status.GetInterfaces()))
-	rendered := make(map[string]map[string][]byte)
-	failed := make(map[string]bool)
+	owners := interfaceOwners(open)
+	failed := make(map[interfaceKey]bool)
+	rendered := make(map[interfaceKey]map[string][]byte)
 	changed := false
-	for _, iface := range status.GetInterfaces() {
-		name := iface.GetName()
-		reported[name] = true
-		files, entriesChanged, err := p.prepare(st, iface, byInterface[name])
-		if err != nil {
-			p.log.Error("interface failed", "interface", name, "error", err)
-			failed[name] = true
-			continue
+	for i, b := range open {
+		for _, name := range b.session.Interfaces() {
+			key := interfaceKey{i, name}
+			if len(owners[name]) > 1 {
+				err := fmt.Errorf("reported by %s", strings.Join(owners[name], " and "))
+				p.log.Error("interface failed", "backend", b.Name, "interface", name, "error", err)
+				failed[key] = true
+				continue
+			}
+			files, entriesChanged, err := b.session.Prepare(st, name, byInterface[name])
+			if err != nil {
+				p.log.Error("interface failed", "backend", b.Name, "interface", name, "error", err)
+				failed[key] = true
+				continue
+			}
+			rendered[key] = files
+			changed = changed || entriesChanged
 		}
-		rendered[name] = files
-		changed = changed || entriesChanged
 	}
 
 	if changed {
@@ -89,33 +90,65 @@ func (p *Pass) Run(ctx context.Context) {
 		}
 	}
 
-	for _, iface := range status.GetInterfaces() {
-		name := iface.GetName()
-		if failed[name] {
-			continue
-		}
-		if err := p.apply(ctx, client, st, name, byInterface[name]); err != nil {
-			p.log.Error("interface failed", "interface", name, "error", err)
-			failed[name] = true
+	for i, b := range open {
+		for _, name := range b.session.Interfaces() {
+			key := interfaceKey{i, name}
+			if failed[key] {
+				continue
+			}
+			if err := b.session.Apply(ctx, st, name, byInterface[name]); err != nil {
+				p.log.Error("interface failed", "backend", b.Name, "interface", name, "error", err)
+				failed[key] = true
+			}
 		}
 	}
 
-	p.logUnknown(cfg, reported)
+	// A backend that is down hides its interface names, so every unreferenced name could be one.
+	if len(down) == 0 {
+		p.logUnknown(cfg, owners)
+	}
 
 	desired := make(map[string][]byte)
-	for name, files := range rendered {
-		if !failed[name] {
+	for key, files := range rendered {
+		if !failed[key] {
 			maps.Copy(desired, files)
 		}
 	}
-	kept, err := clients.Existing(p.settings.ClientsDir, failed)
-	if err != nil {
-		p.log.Error("keeping client configs", "error", err)
+	for i, b := range open {
+		p.keepFiles(desired, b.Backend, func(name string) bool { return failed[interfaceKey{i, name}] })
 	}
-	maps.Copy(desired, kept)
+	for _, b := range down {
+		p.keepFiles(desired, b, func(string) bool { return true })
+	}
 	if err := clients.Mirror(p.settings.ClientsDir, desired); err != nil {
 		p.log.Error("mirroring clients directory", "error", err)
 	}
+}
+
+// openBackends opens a session for every backend and returns the backends that failed to open.
+func (p *Pass) openBackends(ctx context.Context) ([]openBackend, []Backend) {
+	var open []openBackend
+	var down []Backend
+	for _, b := range p.backends {
+		session, err := b.Open(ctx)
+		if err != nil {
+			p.log.Error("backend is down", "backend", b.Name, "error", err)
+			down = append(down, b)
+			continue
+		}
+		open = append(open, openBackend{b, session})
+	}
+	return open, down
+}
+
+// keepFiles copies the current client files of the backend's interfaces that keep selects into
+// desired.
+func (p *Pass) keepFiles(desired map[string][]byte, b Backend, keep func(ifaceName string) bool) {
+	kept, err := clients.Existing(p.settings.ClientsDir, b.Suffix, keep)
+	if err != nil {
+		p.log.Error("keeping client files", "backend", b.Name, "error", err)
+	}
+	maps.Copy(desired, kept)
 }
 
 func (p *Pass) loadConfig() (map[string][]string, bool) {
@@ -132,83 +165,23 @@ func (p *Pass) loadConfig() (map[string][]string, bool) {
 	return p.last, true
 }
 
-func (p *Pass) prepare(st *state.State, iface *awgv1.InterfaceStatus, users []string) (map[string][]byte, bool, error) {
-	if !iface.GetPresent() {
-		return nil, false, errors.New("interface is not present in the kernel")
-	}
-	changed, err := enroll(p.log, st, iface, users)
-	if err != nil {
-		return nil, false, err
-	}
-	files := make(map[string][]byte, len(users))
-	for _, user := range users {
-		content, err := clients.Render(st.AWG[state.EntryName(iface.GetName(), user)], iface, p.settings.Host, p.settings.DNS)
-		if err != nil {
-			return nil, false, fmt.Errorf("user %s: %w", user, err)
-		}
-		files[clients.Path(user, iface.GetName())] = content
-	}
-	return files, changed, nil
-}
-
-func (p *Pass) apply(ctx context.Context, client awgv1.ManagementServiceClient, st *state.State, ifaceName string, users []string) error {
-	peers := make([]*awgv1.Peer, 0, len(users))
-	for _, user := range users {
-		e := st.AWG[state.EntryName(ifaceName, user)]
-		peers = append(peers, &awgv1.Peer{
-			PublicKey:    e.PublicKey(),
-			PresharedKey: e.PresharedKey[:],
-			AllowedIp:    e.Route().String(),
-		})
-	}
-
-	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	resp, err := client.ApplyPeers(callCtx, &awgv1.ApplyPeersRequest{
-		InterfaceName: ifaceName,
-		Peers:         peers,
-		AllowEmpty:    len(peers) == 0,
-	})
-	if err != nil {
-		return fmt.Errorf("applying peers: %w", err)
-	}
-
-	names := publicKeyNames(st, ifaceName)
-	added, removed, updated := nameKeys(names, resp.GetAdded()), nameKeys(names, resp.GetRemoved()), nameKeys(names, resp.GetUpdated())
-	if len(added)+len(removed)+len(updated) > 0 {
-		p.log.Info("peers changed", "interface", ifaceName, "added", added, "removed", removed, "updated", updated)
-	}
-	return nil
-}
-
-// publicKeyNames maps the public key of every entry of the interface, switched off or not, to
-// its user name.
-func publicKeyNames(st *state.State, ifaceName string) map[string]string {
-	names := make(map[string]string)
-	for user, e := range st.InterfaceEntries(ifaceName) {
-		names[string(e.PublicKey())] = user
-	}
-	return names
-}
-
-func nameKeys(names map[string]string, keys [][]byte) []string {
-	out := make([]string, 0, len(keys))
-	for _, k := range keys {
-		if user, ok := names[string(k)]; ok {
-			out = append(out, user)
-		} else {
-			out = append(out, base64.StdEncoding.EncodeToString(k))
+// interfaceOwners maps every reported interface name to the names of the backends that
+// reported it.
+func interfaceOwners(open []openBackend) map[string][]string {
+	owners := make(map[string][]string)
+	for _, b := range open {
+		for _, name := range b.session.Interfaces() {
+			owners[name] = append(owners[name], b.Name)
 		}
 	}
-	slices.Sort(out)
-	return out
+	return owners
 }
 
-func (p *Pass) logUnknown(cfg map[string][]string, reported map[string]bool) {
+func (p *Pass) logUnknown(cfg map[string][]string, owners map[string][]string) {
 	for _, user := range slices.Sorted(maps.Keys(cfg)) {
 		for _, ifaceName := range cfg[user] {
-			if !reported[ifaceName] {
-				p.log.Error("interface is not reported by awg-grpc", "interface", ifaceName, "user", user)
+			if _, ok := owners[ifaceName]; !ok {
+				p.log.Error("interface is not reported by any backend", "interface", ifaceName, "user", user)
 			}
 		}
 	}

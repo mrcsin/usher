@@ -15,33 +15,39 @@ const (
 	statePath   = "/srv/usher/state/users.json"
 )
 
-func settingsFrom(getenv func(string) string) (pass.Settings, error) {
+// environment holds the server facts from the process environment and the fixed paths.
+type environment struct {
+	pass.Settings
+	Host      netip.Addr   // USHER_HOST
+	DNS       []netip.Addr // USHER_DNS
+	AWGSocket string       // USHER_AWG_SOCKET
+}
+
+func environmentFrom(getenv func(string) string) (environment, error) {
 	host, err := parseIPv4("USHER_HOST", getenv("USHER_HOST"))
 	if err != nil {
-		return pass.Settings{}, err
+		return environment{}, err
 	}
 
 	awgSocket, err := parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET"))
 	if err != nil {
-		return pass.Settings{}, err
+		return environment{}, err
 	}
 
 	var dns []netip.Addr
 	for _, field := range strings.Split(getenv("USHER_DNS"), ",") {
 		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
 		if err != nil {
-			return pass.Settings{}, err
+			return environment{}, err
 		}
 		dns = append(dns, addr)
 	}
 
-	return pass.Settings{
-		Host:       host,
-		DNS:        dns,
-		AWGSocket:  awgSocket,
-		ConfigPath: configPath,
-		ClientsDir: clientsPath,
-		StatePath:  statePath,
+	return environment{
+		Settings:  pass.Settings{ConfigPath: configPath, ClientsDir: clientsPath, StatePath: statePath},
+		Host:      host,
+		DNS:       dns,
+		AWGSocket: awgSocket,
 	}, nil
 }
 
