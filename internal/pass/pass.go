@@ -144,7 +144,7 @@ func (p *Pass) openBackends(ctx context.Context) ([]openBackend, []Backend) {
 // keepFiles copies the current client files of the backend's interfaces that keep selects into
 // desired.
 func (p *Pass) keepFiles(desired map[string][]byte, b Backend, keep func(ifaceName string) bool) {
-	kept, err := clients.Existing(p.settings.ClientsDir, b.Suffix, keep)
+	kept, err := clients.Existing(p.settings.ClientsDir, b.Suffixes, keep)
 	if err != nil {
 		p.log.Error("keeping client files", "backend", b.Name, "error", err)
 	}

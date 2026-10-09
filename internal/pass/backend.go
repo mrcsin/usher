@@ -22,7 +22,7 @@ type Session interface {
 
 // Backend is a VPN server usher moves users into.
 type Backend struct {
-	Name   string // used in logs, such as "awg-grpc"
-	Suffix string // suffix of the client files the backend renders, such as ".conf"
-	Open   func(ctx context.Context) (Session, error)
+	Name     string   // used in logs, such as "awg-grpc"
+	Suffixes []string // suffixes of the client files the backend renders, such as ".conf"
+	Open     func(ctx context.Context) (Session, error)
 }

@@ -63,6 +63,11 @@ func TestEnvironmentFrom(t *testing.T) {
 			wantErr: "USHER_AWG_SOCKET",
 		},
 		{
+			name:    "missing awg socket does not ask for DNS",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10"},
+			wantErr: "USHER_AWG_SOCKET is required",
+		},
+		{
 			name:    "empty DNS",
 			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": ""},
 			wantErr: "USHER_DNS",

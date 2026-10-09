@@ -62,9 +62,9 @@ func TestServe(t *testing.T) {
 		StatePath:  filepath.Join(root, "users.json"),
 	}
 	backends := []pass.Backend{{
-		Name:   "fake",
-		Suffix: ".conf",
-		Open:   func(context.Context) (pass.Session, error) { return nil, errors.New("no socket") },
+		Name:     "fake",
+		Suffixes: []string{".conf"},
+		Open:     func(context.Context) (pass.Session, error) { return nil, errors.New("no socket") },
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

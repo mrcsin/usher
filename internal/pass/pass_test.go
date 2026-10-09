@@ -21,8 +21,8 @@ import (
 // fakeSession is a Session that renders "new <interface>" into one file per user and enrolls a
 // state entry the first time an interface has users.
 type fakeSession struct {
-	names  []string
-	suffix string
+	names    []string
+	suffixes []string
 
 	prepareErr map[string]error
 	applyErr   map[string]error
@@ -40,7 +40,9 @@ func (f *fakeSession) Prepare(st *state.State, name string, users []string) (map
 	}
 	files := make(map[string][]byte, len(users))
 	for _, user := range users {
-		files[user+"/"+name+f.suffix] = []byte("new " + name)
+		for _, suffix := range f.suffixes {
+			files[user+"/"+name+suffix] = []byte("new " + name)
+		}
 	}
 	entryName := state.EntryName("fake", name)
 	_, enrolled := st.AWG[entryName]
@@ -74,13 +76,13 @@ type fakeBackend struct {
 	opens   int
 }
 
-func (f *fakeBackend) backend(name, suffix string) Backend {
-	return Backend{Name: name, Suffix: suffix, Open: func(context.Context) (Session, error) {
+func (f *fakeBackend) backend(name string, suffixes ...string) Backend {
+	return Backend{Name: name, Suffixes: suffixes, Open: func(context.Context) (Session, error) {
 		f.opens++
 		if f.openErr != nil {
 			return nil, f.openErr
 		}
-		f.session.suffix = suffix
+		f.session.suffixes = suffixes
 		return f.session, nil
 	}}
 }
@@ -475,5 +477,40 @@ func TestRunLogsBackendName(t *testing.T) {
 
 	if !strings.Contains(e.logs.String(), "backend=awg-grpc") {
 		t.Errorf("log lacks the backend name: %s", e.logs)
+	}
+}
+
+func TestRunTwoSuffixes(t *testing.T) {
+	fb := &fakeBackend{session: &fakeSession{names: []string{"vless", "hy2"}, prepareErr: map[string]error{"hy2": errors.New("bad")}}}
+	e := newPassEnv(t, "phone: [vless, hy2]\n", fb.backend("xray", ".json", ".txt"))
+	e.writeClient("phone/hy2.json", "old json")
+	e.writeClient("phone/hy2.txt", "old txt")
+	e.writeClient("phone/notes.md", "foreign")
+
+	e.run()
+
+	want := map[string]string{
+		"phone/vless.json": "new vless",
+		"phone/vless.txt":  "new vless",
+		"phone/hy2.json":   "old json",
+		"phone/hy2.txt":    "old txt",
+	}
+	if files := e.clientFiles(); !maps.Equal(files, want) {
+		t.Errorf("client files = %v, want %v", files, want)
+	}
+}
+
+func TestRunBackendDownKeepsEverySuffix(t *testing.T) {
+	fb := &fakeBackend{openErr: errors.New("no socket")}
+	e := newPassEnv(t, "phone: [vless]\n", fb.backend("xray", ".json", ".txt"))
+	e.writeClient("phone/vless.json", "old json")
+	e.writeClient("phone/vless.txt", "old txt")
+	e.writeClient("phone/other.conf", "old conf")
+
+	e.run()
+
+	want := map[string]string{"phone/vless.json": "old json", "phone/vless.txt": "old txt"}
+	if files := e.clientFiles(); !maps.Equal(files, want) {
+		t.Errorf("client files = %v, want %v", files, want)
 	}
 }

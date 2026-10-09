@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"path/filepath"
@@ -29,18 +30,18 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 		return environment{}, err
 	}
 
-	awgSocket, err := parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET"))
-	if err != nil {
-		return environment{}, err
-	}
-
+	var awgSocket string
 	var dns []netip.Addr
-	for _, field := range strings.Split(getenv("USHER_DNS"), ",") {
-		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
-		if err != nil {
+	if getenv("USHER_AWG_SOCKET") != "" {
+		if awgSocket, err = parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET")); err != nil {
 			return environment{}, err
 		}
-		dns = append(dns, addr)
+		if dns, err = parseDNS(getenv("USHER_DNS")); err != nil {
+			return environment{}, err
+		}
+	}
+	if awgSocket == "" {
+		return environment{}, errors.New("USHER_AWG_SOCKET is required")
 	}
 
 	return environment{
@@ -49,6 +50,19 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 		DNS:       dns,
 		AWGSocket: awgSocket,
 	}, nil
+}
+
+// parseDNS parses the comma-separated USHER_DNS list that the awg backend puts into client configs.
+func parseDNS(value string) ([]netip.Addr, error) {
+	var dns []netip.Addr
+	for _, field := range strings.Split(value, ",") {
+		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
+		if err != nil {
+			return nil, err
+		}
+		dns = append(dns, addr)
+	}
+	return dns, nil
 }
 
 func parseIPv4(name, value string) (netip.Addr, error) {

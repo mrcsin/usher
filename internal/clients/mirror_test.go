@@ -158,7 +158,7 @@ func TestExisting(t *testing.T) {
 	tests := []struct {
 		name     string
 		existing map[string]string
-		suffix   string
+		suffixes []string
 		keep     func(string) bool
 		want     map[string][]byte
 	}{
@@ -167,21 +167,30 @@ func TestExisting(t *testing.T) {
 			existing: map[string]string{
 				"phone/awg0.conf": "a", "phone/awg1.conf": "b", "laptop/awg1.conf": "c", "phone/notes.txt": "d",
 			},
-			suffix: ".conf",
-			keep:   only("awg1"),
-			want:   map[string][]byte{"phone/awg1.conf": []byte("b"), "laptop/awg1.conf": []byte("c")},
+			suffixes: []string{".conf"},
+			keep:     only("awg1"),
+			want:     map[string][]byte{"phone/awg1.conf": []byte("b"), "laptop/awg1.conf": []byte("c")},
 		},
 		{
 			name:     "keeping all returns every file of the suffix",
 			existing: map[string]string{"phone/awg0.conf": "a", "phone/vless.txt": "b", "laptop/vless.txt": "c"},
-			suffix:   ".txt",
+			suffixes: []string{".txt"},
 			keep:     all,
 			want:     map[string][]byte{"phone/vless.txt": []byte("b"), "laptop/vless.txt": []byte("c")},
 		},
 		{
+			name: "several suffixes keep the files of each",
+			existing: map[string]string{
+				"phone/hy2.json": "a", "phone/hy2.txt": "b", "phone/hy2.conf": "c", "phone/vless.txt": "d",
+			},
+			suffixes: []string{".json", ".txt"},
+			keep:     only("hy2"),
+			want:     map[string][]byte{"phone/hy2.json": []byte("a"), "phone/hy2.txt": []byte("b")},
+		},
+		{
 			name:     "keeping none reads nothing",
 			existing: map[string]string{"phone/awg0.conf": "a"},
-			suffix:   ".conf",
+			suffixes: []string{".conf"},
 			keep:     none,
 			want:     map[string][]byte{},
 		},
@@ -192,7 +201,7 @@ func TestExisting(t *testing.T) {
 			for rel, content := range tt.existing {
 				writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), content, 0o600)
 			}
-			got, err := Existing(dir, tt.suffix, tt.keep)
+			got, err := Existing(dir, tt.suffixes, tt.keep)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -202,7 +211,7 @@ func TestExisting(t *testing.T) {
 		})
 	}
 	t.Run("missing directory is an error", func(t *testing.T) {
-		if _, err := Existing(filepath.Join(t.TempDir(), "gone"), ".conf", all); err == nil {
+		if _, err := Existing(filepath.Join(t.TempDir(), "gone"), []string{".conf"}, all); err == nil {
 			t.Fatal("want an error")
 		}
 	})

@@ -24,10 +24,10 @@ func Path(user, ifaceName, suffix string) string {
 	return user + "/" + ifaceName + suffix
 }
 
-// Existing returns the current content of the files in dir that end in suffix and belong to an
-// interface for which keep returns true, keyed by Path. It reads as much as it can and returns
+// Existing returns the current content of the files in dir that end in one of suffixes and belong
+// to an interface for which keep returns true, keyed by Path. It reads as much as it can and returns
 // the errors of the rest joined.
-func Existing(dir, suffix string, keep func(ifaceName string) bool) (map[string][]byte, error) {
+func Existing(dir string, suffixes []string, keep func(ifaceName string) bool) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	userDirs, err := os.ReadDir(dir)
 	if err != nil {
@@ -44,8 +44,11 @@ func Existing(dir, suffix string, keep func(ifaceName string) bool) (map[string]
 			continue
 		}
 		for _, f := range entries {
-			ifaceName, ok := strings.CutSuffix(f.Name(), suffix)
-			if !ok || f.IsDir() || !keep(ifaceName) {
+			if f.IsDir() {
+				continue
+			}
+			ifaceName, suffix, ok := cutSuffixes(f.Name(), suffixes)
+			if !ok || !keep(ifaceName) {
 				continue
 			}
 			content, err := os.ReadFile(filepath.Join(dir, d.Name(), f.Name()))
@@ -57,6 +60,16 @@ func Existing(dir, suffix string, keep func(ifaceName string) bool) (map[string]
 		}
 	}
 	return files, errors.Join(errs...)
+}
+
+// cutSuffixes strips the first of suffixes that name ends in and returns it.
+func cutSuffixes(name string, suffixes []string) (base, suffix string, ok bool) {
+	for _, suffix := range suffixes {
+		if base, ok := strings.CutSuffix(name, suffix); ok {
+			return base, suffix, true
+		}
+	}
+	return "", "", false
 }
 
 // Mirror makes dir hold exactly the desired files. Keys of desired are slash-separated paths

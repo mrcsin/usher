@@ -57,8 +57,8 @@ func serve(ctx context.Context, settings pass.Settings, backends []pass.Backend,
 func awgBackend(env environment, log *slog.Logger) pass.Backend {
 	dial := dialAWGSocket(env.AWGSocket)
 	return pass.Backend{
-		Name:   "awg-grpc",
-		Suffix: awg.Suffix,
+		Name:     "awg-grpc",
+		Suffixes: []string{awg.Suffix},
 		Open: func(ctx context.Context) (pass.Session, error) {
 			return asSession(awg.Open(ctx, dial, env.Host, env.DNS, log))
 		},

@@ -323,16 +323,17 @@ reported by awg-grpc" and nothing reaches Xray.
   `fake_test.go`, `testdata/phone.conf`); Modify: `internal/clients/mirror.go`
 - Modify: `deploy/compose.example.yml`, `deploy/compose.e2e.yml`
 
-- [ ] cherry-pick `bd02bac`, `00113e4`, `f409cac`, `7100137` from `xray-driver`; drop the hunks
+- [x] cherry-pick `bd02bac`, `00113e4`, `f409cac`, `7100137` from `xray-driver`; drop the hunks
       for `docs/plans/20261007-xray-driver.md` and for Xray files that do not exist here; reword
       the `bd02bac` header without `!`
-- [ ] change `Backend.Suffix` to `Suffixes []string` and make `clients.Existing` keep every suffix
+- [x] change `Backend.Suffix` to `Suffixes []string` and make `clients.Existing` keep every suffix
       of a down backend
-- [ ] make `USHER_DNS` required only when `USHER_AWG_SOCKET` is set
-- [ ] keep the awg behaviour of `master` unchanged
-- [ ] write tests for the seam: two fake backends, a collision, a down backend with two suffixes,
+- [x] make `USHER_DNS` required only when `USHER_AWG_SOCKET` is set
+- [x] keep the awg behaviour of `master` unchanged
+- [x] write tests for the seam: two fake backends, a collision, a down backend with two suffixes,
       the `USHER_DNS` rule
-- [ ] run `go test -race ./...` and the awg e2e (CI) - must pass before Task 2
+- [x] run `go test -race ./...` and the awg e2e (CI) - must pass before Task 2 (awg e2e deferred
+      to CI, not run locally)
 
 ### Task 2: users.json version 2 with Xray credentials
 
