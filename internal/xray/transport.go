@@ -15,9 +15,13 @@ import (
 // noopHeaderPackage is the proto package of the raw TCP header "none".
 const noopHeaderPackage = "xray.transport.internet.headers.noop."
 
-// transports maps a stream's protocol name to its decoder. The decoder returns the link parameters
-// of the transport.
-var transports = map[string]func(stream *internet.StreamConfig) (url.Values, error){
+const transportTCP = "tcp"
+
+// transportDecoder returns the link parameters of a stream's transport.
+type transportDecoder func(stream *internet.StreamConfig) (url.Values, error)
+
+// transports maps a stream's protocol name to its decoder.
+var transports = map[string]transportDecoder{
 	transportTCP: decodeTCP,
 }
 

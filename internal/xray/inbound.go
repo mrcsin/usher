@@ -25,8 +25,9 @@ type inbound struct {
 	err    error
 }
 
-// listInbounds returns every inbound whose proxy settings type has a protocol entry. Other
-// inbounds, such as the api tunnel, are not usher interfaces and are left out.
+// listInbounds returns every tagged inbound whose proxy settings type has a protocol entry. Other
+// inbounds, such as the api tunnel, and inbounds without a tag are not usher interfaces and are
+// left out.
 func listInbounds(ctx context.Context, client command.HandlerServiceClient) ([]inbound, error) {
 	response, err := client.ListInbounds(ctx, &command.ListInboundsRequest{})
 	if err != nil {
@@ -50,7 +51,7 @@ func listInbounds(ctx context.Context, client command.HandlerServiceClient) ([]i
 	return inbounds, nil
 }
 
-func decodeInbound(config *core.InboundHandlerConfig, decodeProtocol func([]byte, string, string) (protocol, error)) (inbound, error) {
+func decodeInbound(config *core.InboundHandlerConfig, decodeProtocol protocolDecoder) (inbound, error) {
 	receiverSettings := config.GetReceiverSettings()
 	if receiverSettings.GetType() != typeName(&proxyman.ReceiverConfig{}) {
 		return inbound{}, fmt.Errorf("receiver settings have type %q", receiverSettings.GetType())

@@ -8,16 +8,15 @@ import (
 )
 
 func TestEnroll(t *testing.T) {
-	seeded := uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d")
 	st := &state.State{Xray: map[string]state.XrayEntry{
-		"vless/alice": {ID: seeded},
+		"vless/alice": {ID: seededID},
 		"other/carol": {ID: uuid.NewV4()},
 	}}
 
 	if !enroll(st, "vless", []string{"alice", "bob"}) {
 		t.Fatal("enroll reported no change after adding bob")
 	}
-	if got := st.Xray["vless/alice"].ID; got != seeded {
+	if got := st.Xray["vless/alice"].ID; got != seededID {
 		t.Errorf("alice id changed to %v", got)
 	}
 	bob, ok := st.Xray["vless/bob"]

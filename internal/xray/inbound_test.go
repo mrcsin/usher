@@ -2,14 +2,10 @@ package xray
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"strings"
 	"testing"
-
-	"google.golang.org/grpc"
 
 	"github.com/mrcsin/usher/gen/xray/app/proxyman"
 	"github.com/mrcsin/usher/gen/xray/app/proxyman/command"
@@ -21,17 +17,6 @@ import (
 	"github.com/mrcsin/usher/gen/xray/transport/internet/reality"
 	"github.com/mrcsin/usher/gen/xray/transport/internet/tcp"
 )
-
-// fakeHandlerService implements command.HandlerServiceClient with func fields.
-type fakeHandlerService struct {
-	command.HandlerServiceClient
-
-	inbounds func() (*command.ListInboundsResponse, error)
-}
-
-func (f *fakeHandlerService) ListInbounds(context.Context, *command.ListInboundsRequest, ...grpc.CallOption) (*command.ListInboundsResponse, error) {
-	return f.inbounds()
-}
 
 func portList(from, to uint32) *net.PortList {
 	return &net.PortList{Range: []*net.PortRange{{From: from, To: to}}}
@@ -55,9 +40,7 @@ func inboundConfig(tag string, ports *net.PortList, stream *internet.StreamConfi
 }
 
 func listOf(configs ...*core.InboundHandlerConfig) command.HandlerServiceClient {
-	return &fakeHandlerService{inbounds: func() (*command.ListInboundsResponse, error) {
-		return &command.ListInboundsResponse{Inbounds: configs}, nil
-	}}
+	return newFakeXray(configs...)
 }
 
 func TestListInbounds(t *testing.T) {
@@ -107,9 +90,8 @@ func TestListInbounds(t *testing.T) {
 	})
 
 	t.Run("list error", func(t *testing.T) {
-		client := &fakeHandlerService{inbounds: func() (*command.ListInboundsResponse, error) {
-			return nil, errors.New("unavailable")
-		}}
+		client := newFakeXray()
+		client.failList = true
 		if _, err := listInbounds(t.Context(), client); err == nil || !strings.Contains(err.Error(), "unavailable") {
 			t.Fatalf("error = %v", err)
 		}

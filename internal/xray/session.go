@@ -114,30 +114,13 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 		current[u.GetEmail()] = u.GetAccount()
 	}
 
-	var removed, added, updated []string
-	for email, account := range current {
-		want, wanted := desired[email]
-		switch {
-		case !wanted:
-			removed = append(removed, email)
-		case !sameAccount(account, want):
-			updated = append(updated, email)
-		}
-	}
-	for email := range desired {
-		if _, ok := current[email]; !ok {
-			added = append(added, email)
-		}
-	}
-	slices.Sort(removed)
-	slices.Sort(added)
-	slices.Sort(updated)
+	removed, added, updated := diffUsers(current, desired)
 
 	var removedDone, addedDone []string
 	logPartial := func() {
 		if len(removedDone)+len(addedDone) > 0 {
 			s.log.Warn("users changed before a failure", "interface", name,
-				"removed", userNames(name, removedDone), "added", userNames(name, addedDone))
+				"added", userNames(name, addedDone), "removed", userNames(name, removedDone))
 		}
 	}
 	for _, email := range append(slices.Clone(removed), updated...) {
@@ -163,6 +146,28 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 			"added", userNames(name, added), "removed", userNames(name, removed), "updated", userNames(name, updated))
 	}
 	return nil
+}
+
+// diffUsers returns the sorted emails to remove, add and replace so that current becomes desired.
+func diffUsers(current, desired map[string]*serial.TypedMessage) (removed, added, updated []string) {
+	for email, account := range current {
+		want, wanted := desired[email]
+		switch {
+		case !wanted:
+			removed = append(removed, email)
+		case !sameAccount(account, want):
+			updated = append(updated, email)
+		}
+	}
+	for email := range desired {
+		if _, ok := current[email]; !ok {
+			added = append(added, email)
+		}
+	}
+	slices.Sort(removed)
+	slices.Sort(added)
+	slices.Sort(updated)
+	return removed, added, updated
 }
 
 // Close closes the connection to Xray.

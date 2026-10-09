@@ -23,6 +23,9 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
+// seededID is the UUID of an entry that state already holds.
+var seededID = uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d")
+
 // fakeXray implements command.HandlerServiceClient over in-memory inbounds. It applies the
 // operations it gets, so a second pass sees the result of the first.
 type fakeXray struct {
@@ -36,7 +39,9 @@ type fakeXray struct {
 	failRemove string
 	// failUsers makes GetInboundUsers fail.
 	failUsers bool
-	calls     []string
+	// failList makes ListInbounds fail.
+	failList bool
+	calls    []string
 }
 
 func newFakeXray(configs ...*core.InboundHandlerConfig) *fakeXray {
@@ -48,6 +53,9 @@ func newFakeXray(configs ...*core.InboundHandlerConfig) *fakeXray {
 }
 
 func (f *fakeXray) ListInbounds(context.Context, *command.ListInboundsRequest, ...grpc.CallOption) (*command.ListInboundsResponse, error) {
+	if f.failList {
+		return nil, errors.New("unavailable")
+	}
 	return &command.ListInboundsResponse{Inbounds: f.configs}, nil
 }
 
@@ -160,7 +168,7 @@ func TestOpen(t *testing.T) {
 	t.Run("list error closes the connection", func(t *testing.T) {
 		closed := false
 		dial := func() (command.HandlerServiceClient, func(), error) {
-			return &failingList{}, func() { closed = true }, nil
+			return &fakeXray{failList: true}, func() { closed = true }, nil
 		}
 		if _, err := Open(context.Background(), dial, netip.MustParseAddr("203.0.113.7"), slog.Default()); err == nil {
 			t.Fatal("no error")
@@ -169,12 +177,6 @@ func TestOpen(t *testing.T) {
 			t.Error("connection stays open")
 		}
 	})
-}
-
-type failingList struct{ command.HandlerServiceClient }
-
-func (*failingList) ListInbounds(context.Context, *command.ListInboundsRequest, ...grpc.CallOption) (*command.ListInboundsResponse, error) {
-	return nil, errors.New("unavailable")
 }
 
 func TestApplyAddsAndRemoves(t *testing.T) {
@@ -231,16 +233,15 @@ func TestApplyEmptiesUnreferencedInbound(t *testing.T) {
 }
 
 func TestApplyKeepsSeededUUID(t *testing.T) {
-	seeded := uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d")
 	env := newSessionEnv(t, twoInbounds(t))
-	env.st.Xray["vless/alice"] = state.XrayEntry{ID: seeded}
+	env.st.Xray["vless/alice"] = state.XrayEntry{ID: seededID}
 	if err := env.pass("vless", "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if got := env.st.Xray["vless/alice"].ID; got != seeded {
+	if got := env.st.Xray["vless/alice"].ID; got != seededID {
 		t.Errorf("id = %v", got)
 	}
-	if got := env.accountOf("vless", "alice"); !sameAccount(got, vlessAccount(seeded, flowVision)) {
+	if got := env.accountOf("vless", "alice"); !sameAccount(got, vlessAccount(seededID, flowVision)) {
 		t.Errorf("account = %v", got)
 	}
 }
@@ -250,13 +251,13 @@ func TestApplyReplacesChangedAccount(t *testing.T) {
 		name    string
 		account *serial.TypedMessage
 	}{
-		{name: "flow change", account: vlessAccount(uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d"), "")},
+		{name: "flow change", account: vlessAccount(seededID, "")},
 		{name: "id change", account: vlessAccount(uuid.NewV4(), flowVision)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newSessionEnv(t, twoInbounds(t))
-			env.st.Xray["vless/alice"] = state.XrayEntry{ID: uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d")}
+			env.st.Xray["vless/alice"] = state.XrayEntry{ID: seededID}
 			env.xray.users["vless"]["vless/alice"] = tt.account
 
 			if err := env.pass("vless", "alice"); err != nil {
@@ -277,7 +278,7 @@ func TestApplyReplacesChangedAccount(t *testing.T) {
 }
 
 func TestSameAccount(t *testing.T) {
-	id := uuid.MustParse("5f0c3a52-4a6e-4d0b-8c1d-7e9f2b3a4c5d")
+	id := seededID
 	// An explicit zero in field 5 (seconds) is the same message with a different encoding.
 	explicit := &serial.TypedMessage{
 		Type:  typeName(&vlessaccount.Account{}),
