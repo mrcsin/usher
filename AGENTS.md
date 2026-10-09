@@ -25,8 +25,9 @@ go test -race ./...
 
 Table-driven tests sit beside the source as `*_test.go`; filesystem tests use `t.TempDir()`. The
 `awg-grpc` API is faked by a struct with func fields that implements
-`awgv1.ManagementServiceClient`; the Xray API is faked the same way for
-`command.HandlerServiceClient`.
+`awgv1.ManagementServiceClient`. The Xray API is faked by `fakeXray`, an in-memory
+`command.HandlerServiceClient` that applies the user operations it gets and fails on flags such
+as `failAdd`; it embeds the nil interface, so a call it does not implement panics.
 
 The e2e suite in `test/e2e` carries `//go:build e2e`. It needs Docker and a host with the
 `amneziawg` module loaded, so it runs on a Linux host, not on macOS. It uses the published
@@ -41,7 +42,8 @@ GOOS=linux GOARCH=amd64 go test -c -tags e2e -o e2e.test ./test/e2e
 The Xray suite in `test/e2e/xray` carries the same tag and needs Docker only, no kernel module. It
 has its own `TestMain`, compose project
 (`deploy/compose.e2e-xray.yml`, network `172.30.98.0/24`) and scratch root `.e2e-xray/`
-(gitignored). It starts the official Xray image with a self-signed nginx as the Reality target,
+(gitignored). Both suites take the compose lifecycle and the polling helpers from
+`test/e2e/e2eutil`. It starts the official Xray image with a self-signed nginx as the Reality target,
 builds usher from the tree and drives two users through client containers built from the rendered
 links. The server config allows the target address in the freedom outbound `finalRules`, because
 Xray 26.x blocks private destinations for VLESS by default. Run it with `-count=1`:
@@ -80,7 +82,8 @@ scripts/format.sh
 ```
 
 Run before presenting changes. It checks gofmt, runs `go vet` without tags and with the `e2e`
-tag, and checks that `gen/xray` equals the output of `buf generate`. `gofmt -w .` fixes formatting. The pre-commit hook and the CI `check` job run the same script.
+tag, and runs the `gen/xray` check (see Generate). `gofmt -w .` fixes formatting. The pre-commit
+hook and the CI `check` job run the same script.
 
 After a change to a shell script or a workflow, also run:
 

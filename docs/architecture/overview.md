@@ -104,7 +104,8 @@ functions in `internal/xray`:
 | `securities` | `security.go` | stream `security_type` (the settings message type) | Reality |
 
 `listInbounds` calls `ListInbounds`, drops every inbound whose proxy settings type has no
-`protocols` entry (such as the `api` tunnel), and decodes the rest. An inbound that fails to
+`protocols` entry (such as the `api` tunnel) and every inbound without a tag, and decodes the
+rest. An inbound that fails to
 decode becomes a failed interface with the error; the others are unaffected. A transport or
 security without a table entry fails the inbound with an error that names it, and an empty
 security type is named `none` in the error.
@@ -180,8 +181,8 @@ The link file is `clients/<user>/<tag>.txt`, one line, mode 0600:
 - `users.json` sits in the `usher-state` volume (mode `0600`, uid 1000). To re-key or delete a user:
   `docker compose stop usher`, then
   `docker run --rm -it -u 1000:1000 -v <project>_usher-state:/state alpine vi /state/users.json`,
-  delete the `<interface>/<user>` entry from the `awg` or `xray` group, `docker compose start usher`. A user still in `usher.yml`
-  gets new keys.
+  delete the `<interface>/<user>` entry from the `awg` or `xray` group,
+  `docker compose start usher`. A user still in `usher.yml` gets new keys.
 - `USHER_HOST` is an address, not a name: a client that re-resolves a name while its DNS points
   into the tunnel cannot reconnect.
 - Client isolation and DNS redirection belong to the service config, not to usher. For AmneziaWG:
