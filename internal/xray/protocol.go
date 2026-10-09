@@ -23,17 +23,13 @@ const (
 	decryptionNone = "none"
 )
 
-// protocolDecoder builds the protocol of an inbound from its proxy settings and the names of its
-// transport and security.
 type protocolDecoder func(settings []byte, transport, security string) (protocol, error)
 
 // protocol is what a proxy-settings entry builds for an inbound.
 type protocol struct {
 	// account returns the account Xray holds for an entry.
 	account func(e state.XrayEntry) *serial.TypedMessage
-	// link returns the client link of a user. params are the inbound's transport and security
-	// parameters.
-	link func(e state.XrayEntry, user string, host netip.Addr, port uint16, params url.Values) string
+	link    func(e state.XrayEntry, user string, host netip.Addr, port uint16, params url.Values) string
 }
 
 // protocols maps the type of an inbound's proxy settings to its decoder.

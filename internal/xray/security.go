@@ -21,7 +21,6 @@ const securityNone = "none"
 // fingerprintChrome is the TLS client fingerprint of every link; Reality requires one.
 const fingerprintChrome = "chrome"
 
-// securityReality is the security parameter of a Reality link.
 const securityReality = "reality"
 
 // securityDecoder returns the link parameters of a stream's security.

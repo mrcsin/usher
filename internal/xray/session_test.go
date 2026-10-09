@@ -37,11 +37,9 @@ type fakeXray struct {
 	failAdd string
 	// failRemove names an email whose RemoveUserOperation fails.
 	failRemove string
-	// failUsers makes GetInboundUsers fail.
-	failUsers bool
-	// failList makes ListInbounds fail.
-	failList bool
-	calls    []string
+	failUsers  bool
+	failList   bool
+	calls      []string
 }
 
 func newFakeXray(configs ...*core.InboundHandlerConfig) *fakeXray {

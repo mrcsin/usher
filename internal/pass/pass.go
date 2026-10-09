@@ -26,7 +26,6 @@ func New(settings Settings, backends []Backend, log *slog.Logger) *Pass {
 	return &Pass{settings: settings, backends: backends, log: log}
 }
 
-// openBackend is a backend with its session for this pass.
 type openBackend struct {
 	Backend
 	session Session
@@ -165,8 +164,6 @@ func (p *Pass) loadConfig() (map[string][]string, bool) {
 	return p.last, true
 }
 
-// interfaceOwners maps every reported interface name to the names of the backends that
-// reported it.
 func interfaceOwners(open []openBackend) map[string][]string {
 	owners := make(map[string][]string)
 	for _, b := range open {

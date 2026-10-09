@@ -23,10 +23,8 @@ import (
 // Suffix is the file suffix of an Xray client link file.
 const Suffix = ".txt"
 
-// callTimeout bounds each call to Xray.
 const callTimeout = 10 * time.Second
 
-// userLevel is the level of every user usher adds.
 const userLevel = 0
 
 // Dial opens a connection to the Xray API. It returns the client and the function that closes the

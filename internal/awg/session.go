@@ -21,7 +21,6 @@ import (
 // Suffix is the file suffix of an AmneziaWG client config.
 const Suffix = ".conf"
 
-// callTimeout bounds each call to awg-grpc.
 const callTimeout = 10 * time.Second
 
 // Dial opens a connection to awg-grpc. It returns the client and the function that closes the

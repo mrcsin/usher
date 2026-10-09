@@ -32,7 +32,6 @@ const (
 	targetBody    = "usher-e2e-target"
 	proxyPort     = 8080
 
-	// The deadlines follow the production constants: 3 s file poll, 500 ms settle, 30 s refill.
 	changeTimeout  = 10 * time.Second
 	refillTimeout  = 60 * time.Second
 	requestTimeout = 5 * time.Second
@@ -42,7 +41,6 @@ const (
 	failedFetches = 3
 )
 
-// The bind-mount directories of the compose project, under scratchRoot.
 const (
 	scratchRoot = ".e2e-xray"
 	configDir   = "config"
@@ -159,7 +157,6 @@ func assertFailsRepeatedly(t *testing.T, what, proxy string) {
 	}
 }
 
-// usherLogs returns the log of the usher container.
 func usherLogs(t *testing.T) string {
 	t.Helper()
 	out, err := project.Cmd("logs", "--no-color", "usher").CombinedOutput()
@@ -195,8 +192,7 @@ func readLink(user string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// writeClientConfig builds the Xray client config of a user from the rendered link. pbk, sid and
-// sni go into the config unchanged.
+// writeClientConfig builds the Xray client config of a user from the rendered link.
 func writeClientConfig(t *testing.T, user, link string) {
 	t.Helper()
 	parsed, err := url.Parse(link)
