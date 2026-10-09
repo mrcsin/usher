@@ -5,22 +5,21 @@
 package xray
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrcsin/usher/test/e2e/e2eutil"
 )
 
 const (
@@ -31,7 +30,7 @@ const (
 	tag           = "vless-reality"
 	targetURL     = "http://target/"
 	targetBody    = "usher-e2e-target"
-	proxyPort     = "8080"
+	proxyPort     = 8080
 
 	// The deadlines follow the production constants: 3 s file poll, 500 ms settle, 30 s refill.
 	changeTimeout  = 10 * time.Second
@@ -53,7 +52,15 @@ const (
 	clientDir   = "client"
 )
 
-var scratchDirs = []string{configDir, clientsDir, stateDir, sockDir, clientDir}
+var project = &e2eutil.Project{
+	RepoDir:     repoDir,
+	ComposeFile: composeFile,
+	ScratchRoot: scratchRoot,
+	Dirs: []string{configDir, clientsDir, stateDir, sockDir,
+		filepath.Join(clientDir, "alice"), filepath.Join(clientDir, "bob")},
+	Profile:  clientProfile,
+	Services: []string{"usher"},
+}
 
 // proxies maps each user to the HTTP proxy of that user's client container.
 var proxies = map[string]string{
@@ -61,88 +68,8 @@ var proxies = map[string]string{
 	"bob":   "172.30.98.12",
 }
 
-func e2ePath(elem ...string) string {
-	return filepath.Join(append([]string{repoDir, scratchRoot}, elem...)...)
-}
-
 func TestMain(m *testing.M) {
-	os.Exit(runMain(m))
-}
-
-// runMain creates the bind-mount directories as the test user, so dockerd does not create them
-// as root and usher, which runs as the test user, can write them. A run that was killed leaves
-// the project up, so runMain takes it down before it starts.
-func runMain(m *testing.M) int {
-	flag.Parse()
-	if count := flag.Lookup("test.count").Value.String(); count != "1" {
-		fmt.Fprintf(os.Stderr, "-count=%s: TestXray restarts the xray service, so it runs once per process; use -count=1\n", count)
-		return 1
-	}
-	down()
-	if err := os.RemoveAll(e2ePath()); err != nil {
-		fmt.Fprintf(os.Stderr, "removing %s: %v\n", scratchRoot, err)
-		return 1
-	}
-	for _, dir := range scratchDirs {
-		if err := os.MkdirAll(e2ePath(dir), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "creating %s: %v\n", dir, err)
-			return 1
-		}
-	}
-	for user := range proxies {
-		if err := os.MkdirAll(e2ePath(clientDir, user), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "creating client dir of %s: %v\n", user, err)
-			return 1
-		}
-	}
-	defer down()
-
-	out, err := composeCmd("up", "-d", "--build", "--wait", "usher").CombinedOutput()
-	fmt.Fprintf(os.Stderr, "docker compose up:\n%s\n", out)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker compose up: %v\n", err)
-		printLogs()
-		return 1
-	}
-	code := m.Run()
-	if code != 0 {
-		printLogs()
-	}
-	return code
-}
-
-func down() {
-	out, err := composeCmd("--profile", clientProfile, "down", "-v", "--remove-orphans", "--timeout", "10").CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker compose down: %v\n%s\n", err, out)
-	}
-}
-
-func printLogs() {
-	out, err := composeCmd("--profile", clientProfile, "logs", "--no-color").CombinedOutput()
-	fmt.Fprintf(os.Stderr, "docker compose logs (err %v):\n%s\n", err, out)
-}
-
-// composeCmd builds docker compose on the e2e project, run from the repository root with the
-// uid and gid of the test user, so usher can write the bind mounts and open the socket.
-func composeCmd(args ...string) *exec.Cmd {
-	cmd := exec.Command("docker", append([]string{"compose", "-f", composeFile}, args...)...)
-	cmd.Dir = repoDir
-	cmd.Env = append(os.Environ(),
-		"E2E_UID="+strconv.Itoa(os.Getuid()),
-		"E2E_GID="+strconv.Itoa(os.Getgid()))
-	return cmd
-}
-
-func compose(t *testing.T, args ...string) {
-	t.Helper()
-	var stdout, stderr bytes.Buffer
-	cmd := composeCmd(args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("docker compose %s: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
-	}
+	os.Exit(project.Main(m))
 }
 
 // TestXray runs its subtests in order; each one starts from the state the previous one left.
@@ -165,24 +92,24 @@ func TestXray(t *testing.T) {
 // testConnect writes a config of two users, builds a client from each rendered link and fetches
 // the target page through it.
 func testConnect(t *testing.T) {
-	waitFor(t, within(changeTimeout), "the API socket of xray", func() error {
-		_, err := os.Stat(e2ePath(sockDir, "api.sock"))
+	e2eutil.WaitFor(t, e2eutil.Within(changeTimeout), "the API socket of xray", func() error {
+		_, err := os.Stat(project.Path(sockDir, "api.sock"))
 		return err
 	})
-	writeUsherConfig(t, usherYAML("alice", "bob"))
-	deadline := within(changeTimeout)
+	project.WriteConfig(t, usherYAML("alice", "bob"))
+	deadline := e2eutil.Within(changeTimeout)
 	for user := range proxies {
 		var link string
-		waitFor(t, deadline, "link file of "+user, func() error {
+		e2eutil.WaitFor(t, deadline, "link file of "+user, func() error {
 			var err error
 			link, err = readLink(user)
 			return err
 		})
 		writeClientConfig(t, user, link)
 	}
-	compose(t, "--profile", clientProfile, "up", "-d", "client-alice", "client-bob")
+	project.Compose(t, "--profile", clientProfile, "up", "-d", "client-alice", "client-bob")
 	for user, proxy := range proxies {
-		waitFor(t, within(changeTimeout), "a page through the link of "+user, func() error {
+		e2eutil.WaitFor(t, e2eutil.Within(changeTimeout), "a page through the link of "+user, func() error {
 			return fetch(proxy)
 		})
 	}
@@ -191,8 +118,8 @@ func testConnect(t *testing.T) {
 // testSwitchOff removes bob from usher.yml. Once usher logs the removal, a new connection through
 // bob's link must keep failing while alice's link still works.
 func testSwitchOff(t *testing.T) {
-	writeUsherConfig(t, usherYAML("alice"))
-	waitFor(t, within(changeTimeout), "the removal of bob in the usher log", func() error {
+	project.WriteConfig(t, usherYAML("alice"))
+	e2eutil.WaitFor(t, e2eutil.Within(changeTimeout), "the removal of bob in the usher log", func() error {
 		if !strings.Contains(usherLogs(t), "removed=[bob]") {
 			return errors.New("no removed=[bob] line yet")
 		}
@@ -207,8 +134,8 @@ func testSwitchOff(t *testing.T) {
 // testRefill restarts xray, which empties its user list. usher must put alice back on its refill
 // ticker and leave bob out. Once the list is full again, a refill tick must change nothing.
 func testRefill(t *testing.T) {
-	compose(t, "restart", "xray")
-	waitFor(t, within(refillTimeout), "a page through the link of alice after the restart", func() error {
+	project.Compose(t, "restart", "xray")
+	e2eutil.WaitFor(t, e2eutil.Within(refillTimeout), "a page through the link of alice after the restart", func() error {
 		return fetch(proxies["alice"])
 	})
 	assertFailsRepeatedly(t, "bob after the restart", proxies["bob"])
@@ -235,7 +162,7 @@ func assertFailsRepeatedly(t *testing.T, what, proxy string) {
 // usherLogs returns the log of the usher container.
 func usherLogs(t *testing.T) string {
 	t.Helper()
-	out, err := composeCmd("logs", "--no-color", "usher").CombinedOutput()
+	out, err := project.Cmd("logs", "--no-color", "usher").CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker compose logs usher: %v\n%s", err, out)
 	}
@@ -250,22 +177,10 @@ func usherYAML(users ...string) string {
 	return b.String()
 }
 
-func writeUsherConfig(t *testing.T, content string) {
-	t.Helper()
-	dir := e2ePath(configDir)
-	tmp := filepath.Join(dir, ".usher.yml.tmp")
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		t.Fatalf("writing usher.yml: %v", err)
-	}
-	if err := os.Rename(tmp, filepath.Join(dir, "usher.yml")); err != nil {
-		t.Fatalf("replacing usher.yml: %v", err)
-	}
-}
-
 // readLink returns the rendered link of the user, or the reason it is not there as a mode 0600
 // file yet.
 func readLink(user string) (string, error) {
-	path := e2ePath(clientsDir, user, tag+".txt")
+	path := project.Path(clientsDir, user, tag+".txt")
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -301,7 +216,7 @@ func writeClientConfig(t *testing.T, user, link string) {
 		"log": map[string]any{"loglevel": "warning"},
 		"inbounds": []any{map[string]any{
 			"listen":   "0.0.0.0",
-			"port":     8080,
+			"port":     proxyPort,
 			"protocol": "http",
 		}},
 		"outbounds": []any{map[string]any{
@@ -329,7 +244,7 @@ func writeClientConfig(t *testing.T, user, link string) {
 	if err != nil {
 		t.Fatalf("encoding the client config of %s: %v", user, err)
 	}
-	if err := os.WriteFile(e2ePath(clientDir, user, "config.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(project.Path(clientDir, user, "config.json"), data, 0o644); err != nil {
 		t.Fatalf("writing the client config of %s: %v", user, err)
 	}
 }
@@ -337,7 +252,7 @@ func writeClientConfig(t *testing.T, user, link string) {
 // fetch requests the target page through the HTTP proxy of one client container and reports why
 // the request did not return the page with status 200.
 func fetch(proxyHost string) error {
-	proxy, err := url.Parse("http://" + net.JoinHostPort(proxyHost, proxyPort))
+	proxy, err := url.Parse("http://" + net.JoinHostPort(proxyHost, strconv.Itoa(proxyPort)))
 	if err != nil {
 		return err
 	}
@@ -364,20 +279,4 @@ func fetch(proxyHost string) error {
 		return fmt.Errorf("body %q does not come from the target", body)
 	}
 	return nil
-}
-
-func within(timeout time.Duration) time.Time {
-	return time.Now().Add(timeout)
-}
-
-func waitFor(t *testing.T, deadline time.Time, what string, check func() error) {
-	t.Helper()
-	var err error
-	for time.Now().Before(deadline) {
-		if err = check(); err == nil {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatalf("no %s before the deadline: %v", what, err)
 }
