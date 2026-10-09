@@ -420,18 +420,18 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Create: `internal/xray/session_test.go`
 - Create: `internal/xray/enroll_test.go`
 
-- [ ] implement `Session` for Xray: open lists the inbounds (Task 5)
-- [ ] enroll: create an entry with `uuid.NewV4()` for every referenced user without one; never
+- [x] implement `Session` for Xray: open lists the inbounds (Task 5)
+- [x] enroll: create an entry with `uuid.NewV4()` for every referenced user without one; never
       change an existing entry
-- [ ] apply: read `GetInboundUsers`, compare accounts as in Technical Details, remove extra and
+- [x] apply: read `GetInboundUsers`, compare accounts as in Technical Details, remove extra and
       changed users, add missing and changed users with `level` 0, `email` `tag/user` and the
       account the protocol entry builds; log `users changed`
-- [ ] treat an `AlterInbound` error as a failure of that inbound
-- [ ] write tests with a fake `HandlerServiceClient`: add, remove, flow change, id change,
+- [x] treat an `AlterInbound` error as a failure of that inbound
+- [x] write tests with a fake `HandlerServiceClient`: add, remove, flow change, id change,
       unreferenced inbound emptied, a seeded UUID kept, partial failure converging on the next
       pass
-- [ ] write a leak test: no usher log line or error contains a UUID
-- [ ] run `go test -race ./...` - must pass before Task 7
+- [x] write a leak test: no usher log line or error contains a UUID
+- [x] run `go test -race ./...` - must pass before Task 7
 
 ### Task 7: Render VLESS links
 
