@@ -86,7 +86,7 @@ func (s *Session) Prepare(st *state.State, name string, users []string) (map[str
 	}
 	files := make(map[string][]byte, len(users))
 	for _, user := range users {
-		content, err := Render(st.AWG[state.EntryName(name, user)], iface, s.host, s.dns)
+		content, err := render(st.AWG[state.EntryName(name, user)], iface, s.host, s.dns)
 		if err != nil {
 			return nil, false, fmt.Errorf("user %s: %w", user, err)
 		}

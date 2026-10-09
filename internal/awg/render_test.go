@@ -36,7 +36,7 @@ func testInterface() *awgv1.InterfaceStatus {
 }
 
 func TestRenderGolden(t *testing.T) {
-	got, err := Render(testEntry(), testInterface(), netip.MustParseAddr("203.0.113.10"),
+	got, err := render(testEntry(), testInterface(), netip.MustParseAddr("203.0.113.10"),
 		[]netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("1.0.0.1")})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestRender(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(iface)
 			}
-			got, err := Render(testEntry(), iface, host, tt.dns)
+			got, err := render(testEntry(), iface, host, tt.dns)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("want an error")
