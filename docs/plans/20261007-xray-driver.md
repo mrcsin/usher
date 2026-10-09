@@ -479,14 +479,14 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Modify: `.gitignore` (`.e2e-xray`)
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] compose project with Xray server (official image, pinned tag, `user: "0:${E2E_GID:-0}"`),
+- [x] compose project with Xray server (official image, pinned tag, `user: "0:${E2E_GID:-0}"`),
       nginx with a self-signed certificate and `ssl_protocols TLSv1.3` as the Reality target, usher
       built from the tree, and an Xray client profile
-- [ ] the test config holds two users; the test builds each client JSON by copying `pbk`, `sid`
+- [x] the test config holds two users; the test builds each client JSON by copying `pbk`, `sid`
       and `sni` from the rendered link unchanged into `publicKey`, `shortId` and `serverName`
-- [ ] assert the three outcomes of Acceptance Evidence item 3
-- [ ] run the suite in the CI `e2e` job next to `ci.yml:62`
-- [ ] run `go test -tags e2e -count=1 -v ./test/e2e/xray/` - must pass before Task 10
+- [x] assert the three outcomes of Acceptance Evidence item 3
+- [x] run the suite in the CI `e2e` job next to `ci.yml:62`
+- [x] run `go test -tags e2e -count=1 -v ./test/e2e/xray/` - must pass before Task 10 (run in GitHub CI, not locally: no Docker on the dev host)
 
 ### Task 10: Verify acceptance criteria
 
