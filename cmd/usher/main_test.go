@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net/netip"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
 
 	"github.com/mrcsin/usher/internal/pass"
 )
@@ -59,20 +57,23 @@ func TestRun(t *testing.T) {
 func TestServe(t *testing.T) {
 	root := t.TempDir()
 	settings := pass.Settings{
-		Host:       netip.MustParseAddr("203.0.113.10"),
-		DNS:        []netip.Addr{netip.MustParseAddr("1.1.1.1")},
 		ConfigPath: filepath.Join(root, "usher.yml"),
 		ClientsDir: filepath.Join(root, "clients"),
 		StatePath:  filepath.Join(root, "users.json"),
 	}
-	dial := func() (awgv1.ManagementServiceClient, func(), error) { return nil, nil, errors.New("no socket") }
+	backends := []pass.Backend{{
+		Name:   "fake",
+		Suffix: ".conf",
+		Open:   func(context.Context) (pass.Session, error) { return nil, errors.New("no socket") },
+	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	time.AfterFunc(200*time.Millisecond, cancel)
 
 	var stderr bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&stderr, nil))
 	done := make(chan int, 1)
-	go func() { done <- serve(ctx, settings, dial, &stderr) }()
+	go func() { done <- serve(ctx, settings, backends, log) }()
 	select {
 	case code := <-done:
 		if code != 0 {

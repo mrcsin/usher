@@ -1,3 +1,4 @@
+// Package clients mirrors client files into the clients directory.
 package clients
 
 import (
@@ -17,19 +18,17 @@ const (
 	clientDirMode  = 0o755
 )
 
-// Path returns the slash-separated path of a user's config on an interface, relative to the
-// clients directory.
-func Path(user, ifaceName string) string {
-	return user + "/" + ifaceName + ".conf"
+// Path returns the slash-separated path of a user's client file on an interface, relative to the
+// clients directory. suffix is the backend's file suffix, such as ".conf".
+func Path(user, ifaceName, suffix string) string {
+	return user + "/" + ifaceName + suffix
 }
 
-// Existing returns the current content of the configs in dir that belong to the interfaces in
-// ifaces, keyed by Path. It reads as much as it can and returns the errors of the rest joined.
-func Existing(dir string, ifaces map[string]bool) (map[string][]byte, error) {
+// Existing returns the current content of the files in dir that end in suffix and belong to an
+// interface for which keep returns true, keyed by Path. It reads as much as it can and returns
+// the errors of the rest joined.
+func Existing(dir, suffix string, keep func(ifaceName string) bool) (map[string][]byte, error) {
 	files := make(map[string][]byte)
-	if len(ifaces) == 0 {
-		return files, nil
-	}
 	userDirs, err := os.ReadDir(dir)
 	if err != nil {
 		return files, err
@@ -39,14 +38,14 @@ func Existing(dir string, ifaces map[string]bool) (map[string][]byte, error) {
 		if !d.IsDir() {
 			continue
 		}
-		confs, err := os.ReadDir(filepath.Join(dir, d.Name()))
+		entries, err := os.ReadDir(filepath.Join(dir, d.Name()))
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		for _, f := range confs {
-			ifaceName, ok := strings.CutSuffix(f.Name(), ".conf")
-			if !ok || f.IsDir() || !ifaces[ifaceName] {
+		for _, f := range entries {
+			ifaceName, ok := strings.CutSuffix(f.Name(), suffix)
+			if !ok || f.IsDir() || !keep(ifaceName) {
 				continue
 			}
 			content, err := os.ReadFile(filepath.Join(dir, d.Name(), f.Name()))
@@ -54,7 +53,7 @@ func Existing(dir string, ifaces map[string]bool) (map[string][]byte, error) {
 				errs = append(errs, err)
 				continue
 			}
-			files[Path(d.Name(), ifaceName)] = content
+			files[Path(d.Name(), ifaceName, suffix)] = content
 		}
 	}
 	return files, errors.Join(errs...)

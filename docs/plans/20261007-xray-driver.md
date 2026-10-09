@@ -328,20 +328,20 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
   `internal/clients/render_test.go`, `internal/clients/mirror_test.go`)
 - Modify: `internal/pass/pass_test.go` (cases for the seam)
 
-- [ ] add `Session` and `Backend` as in the seam sketch; the awg driver implements `Session` with
+- [x] add `Session` and `Backend` as in the seam sketch; the awg driver implements `Session` with
       today's behavior from `pass.go:52-101`, `pass.go:136-138`, `enroll.go:23` and `render.go:18`,
       and gets `USHER_HOST` and `USHER_DNS` from its constructor instead of `pass.Settings`
-- [ ] make the pass open one session per backend, fail a name reported by two backends in both,
+- [x] make the pass open one session per backend, fail a name reported by two backends in both,
       and handle a backend that is down as in Solution Overview
-- [ ] give `clients.Path` and `clients.Existing` a suffix argument (`mirror.go:22,48`) and a way to
+- [x] give `clients.Path` and `clients.Existing` a suffix argument (`mirror.go:22,48`) and a way to
       keep all files of one suffix
-- [ ] reword `pass.go:211` to "interface is not reported by any backend"
-- [ ] move the existing awg tests with the code; they pass unchanged in substance
-- [ ] write tests for the seam with two fake backends: both apply; a name collision; a failed
+- [x] reword `pass.go:211` to "interface is not reported by any backend"
+- [x] move the existing awg tests with the code; they pass unchanged in substance
+- [x] write tests for the seam with two fake backends: both apply; a name collision; a failed
       interface of one backend leaving the other applied and keeping its files; one backend down
       while the other applies and the first one's files stay; no unknown-name log while a backend
       is down
-- [ ] run `go build ./...`, `go vet ./...`, `go test -race ./...` and the awg e2e - must pass
+- [x] run `go build ./...`, `go vet ./...`, `go test -race ./...` and the awg e2e - must pass
       before Task 3
 
 ### Task 3: Add the xray group to users.json
