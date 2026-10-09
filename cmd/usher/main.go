@@ -1,4 +1,4 @@
-// Command usher keeps AmneziaWG peers and client configs in step with config/usher.yml.
+// Command usher keeps AmneziaWG and Xray users and client configs in step with config/usher.yml.
 package main
 
 import (
@@ -15,9 +15,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/mrcsin/usher/gen/xray/app/proxyman/command"
 	"github.com/mrcsin/usher/internal/awg"
 	"github.com/mrcsin/usher/internal/pass"
 	"github.com/mrcsin/usher/internal/watch"
+	"github.com/mrcsin/usher/internal/xray"
 )
 
 // version is set at build time with -X main.version.
@@ -41,8 +43,18 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	}
 
 	log := slog.New(slog.NewTextHandler(stderr, nil))
-	backends := []pass.Backend{awgBackend(env, log)}
-	return serve(ctx, env.Settings, backends, log)
+	return serve(ctx, env.Settings, backendsFor(env, log), log)
+}
+
+func backendsFor(env environment, log *slog.Logger) []pass.Backend {
+	var backends []pass.Backend
+	if env.AWGSocket != "" {
+		backends = append(backends, awgBackend(env, log))
+	}
+	if env.XraySocket != "" {
+		backends = append(backends, xrayBackend(env, log))
+	}
+	return backends
 }
 
 func serve(ctx context.Context, settings pass.Settings, backends []pass.Backend, log *slog.Logger) int {
@@ -69,13 +81,46 @@ func awgBackend(env environment, log *slog.Logger) pass.Backend {
 	}
 }
 
+func xrayBackend(env environment, log *slog.Logger) pass.Backend {
+	dial := dialXraySocket(env.XraySocket)
+	return pass.Backend{
+		Name:   "xray",
+		Suffix: xray.Suffix,
+		Open: func(ctx context.Context) (pass.Session, error) {
+			session, err := xray.Open(ctx, dial, env.Host, log)
+			if err != nil {
+				return nil, err
+			}
+			return session, nil
+		},
+	}
+}
+
 func dialSocket(path string) awg.Dial {
-	target := "unix://" + path
 	return func() (awgv1.ManagementServiceClient, func(), error) {
-		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := dialConn(path)
 		if err != nil {
-			return nil, nil, fmt.Errorf("opening %s: %w", target, err)
+			return nil, nil, err
 		}
 		return awgv1.NewManagementServiceClient(conn), func() { _ = conn.Close() }, nil
 	}
+}
+
+func dialXraySocket(path string) xray.Dial {
+	return func() (command.HandlerServiceClient, func(), error) {
+		conn, err := dialConn(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		return command.NewHandlerServiceClient(conn), func() { _ = conn.Close() }, nil
+	}
+}
+
+func dialConn(path string) (*grpc.ClientConn, error) {
+	target := "unix://" + path
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", target, err)
+	}
+	return conn, nil
 }

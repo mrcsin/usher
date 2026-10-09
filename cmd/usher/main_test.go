@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +28,7 @@ func TestRun(t *testing.T) {
 		{name: "unknown argument", args: []string{"serve"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "extra argument", args: []string{"run", "x"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "missing host", args: []string{"run"}, env: map[string]string{"USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}, wantCode: 1, wantStderr: "USHER_HOST"},
+		{name: "no backend", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10"}, wantCode: 1, wantStderr: "USHER_XRAY_SOCKET"},
 		{name: "bad dns", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "dns.example"}, wantCode: 1, wantStderr: "USHER_DNS"},
 	}
 	for _, tt := range tests {
@@ -87,5 +90,32 @@ func TestServe(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
 		}
+	}
+}
+
+func TestBackendsFor(t *testing.T) {
+	tests := []struct {
+		name string
+		env  environment
+		want []string
+	}{
+		{name: "only awg", env: environment{AWGSocket: "/run/awg.sock"}, want: []string{"awg-grpc"}},
+		{name: "only xray", env: environment{XraySocket: "/run/xray.sock"}, want: []string{"xray"}},
+		{
+			name: "both",
+			env:  environment{AWGSocket: "/run/awg.sock", XraySocket: "/run/xray.sock"},
+			want: []string{"awg-grpc", "xray"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, b := range backendsFor(tt.env, slog.New(slog.NewTextHandler(io.Discard, nil))) {
+				got = append(got, b.Name)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("backends = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

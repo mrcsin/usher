@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"path/filepath"
@@ -18,9 +19,10 @@ const (
 // environment holds the server facts from the process environment and the fixed paths.
 type environment struct {
 	pass.Settings
-	Host      netip.Addr   // USHER_HOST
-	DNS       []netip.Addr // USHER_DNS
-	AWGSocket string       // USHER_AWG_SOCKET
+	Host       netip.Addr   // USHER_HOST
+	DNS        []netip.Addr // USHER_DNS, read only with USHER_AWG_SOCKET
+	AWGSocket  string       // USHER_AWG_SOCKET, empty when the backend is off
+	XraySocket string       // USHER_XRAY_SOCKET, empty when the backend is off
 }
 
 func environmentFrom(getenv func(string) string) (environment, error) {
@@ -33,21 +35,28 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 	if err != nil {
 		return environment{}, err
 	}
+	xraySocket, err := parseSocketPath("USHER_XRAY_SOCKET", getenv("USHER_XRAY_SOCKET"))
+	if err != nil {
+		return environment{}, err
+	}
+	if awgSocket == "" && xraySocket == "" {
+		return environment{}, errors.New("set USHER_AWG_SOCKET, USHER_XRAY_SOCKET or both")
+	}
 
 	var dns []netip.Addr
-	for _, field := range strings.Split(getenv("USHER_DNS"), ",") {
-		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
+	if awgSocket != "" {
+		dns, err = parseDNS(getenv("USHER_DNS"))
 		if err != nil {
 			return environment{}, err
 		}
-		dns = append(dns, addr)
 	}
 
 	return environment{
-		Settings:  pass.Settings{ConfigPath: configPath, ClientsDir: clientsPath, StatePath: statePath},
-		Host:      host,
-		DNS:       dns,
-		AWGSocket: awgSocket,
+		Settings:   pass.Settings{ConfigPath: configPath, ClientsDir: clientsPath, StatePath: statePath},
+		Host:       host,
+		DNS:        dns,
+		AWGSocket:  awgSocket,
+		XraySocket: xraySocket,
 	}, nil
 }
 
@@ -62,9 +71,22 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 	return addr, nil
 }
 
+func parseDNS(value string) ([]netip.Addr, error) {
+	var dns []netip.Addr
+	for _, field := range strings.Split(value, ",") {
+		addr, err := parseIPv4("USHER_DNS", strings.TrimSpace(field))
+		if err != nil {
+			return nil, err
+		}
+		dns = append(dns, addr)
+	}
+	return dns, nil
+}
+
+// parseSocketPath returns an empty path for an unset variable, which turns the backend off.
 func parseSocketPath(name, value string) (string, error) {
 	if value == "" {
-		return "", fmt.Errorf("%s is required", name)
+		return "", nil
 	}
 	if !filepath.IsAbs(value) {
 		return "", fmt.Errorf("%s: %q is not an absolute path", name, value)

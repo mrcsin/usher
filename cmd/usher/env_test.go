@@ -53,9 +53,48 @@ func TestEnvironmentFrom(t *testing.T) {
 			wantErr: "USHER_HOST",
 		},
 		{
-			name:    "missing awg socket",
+			name: "only xray",
+			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "/run/xray.sock"},
+			want: environment{
+				Host:       netip.MustParseAddr("203.0.113.10"),
+				XraySocket: "/run/xray.sock",
+			},
+		},
+		{
+			name: "only xray ignores a bad DNS",
+			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "/run/xray.sock", "USHER_DNS": "dns.example"},
+			want: environment{
+				Host:       netip.MustParseAddr("203.0.113.10"),
+				XraySocket: "/run/xray.sock",
+			},
+		},
+		{
+			name: "both backends",
+			env: map[string]string{
+				"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock",
+				"USHER_XRAY_SOCKET": "/run/xray.sock", "USHER_DNS": "1.1.1.1",
+			},
+			want: environment{
+				Host:       netip.MustParseAddr("203.0.113.10"),
+				DNS:        []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+				AWGSocket:  "/run/awg.sock",
+				XraySocket: "/run/xray.sock",
+			},
+		},
+		{
+			name:    "no backend",
 			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"},
-			wantErr: "USHER_AWG_SOCKET",
+			wantErr: "USHER_AWG_SOCKET, USHER_XRAY_SOCKET",
+		},
+		{
+			name:    "relative xray socket",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "xray.sock"},
+			wantErr: "USHER_XRAY_SOCKET",
+		},
+		{
+			name:    "awg without DNS",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_XRAY_SOCKET": "/run/xray.sock"},
+			wantErr: "USHER_DNS",
 		},
 		{
 			name:    "relative awg socket",
@@ -95,9 +134,11 @@ func TestEnvironmentFrom(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) || got.AWGSocket != tt.want.AWGSocket {
-				t.Errorf("host/dns/socket = %v %v %q, want %v %v %q",
-					got.Host, got.DNS, got.AWGSocket, tt.want.Host, tt.want.DNS, tt.want.AWGSocket)
+			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) ||
+				got.AWGSocket != tt.want.AWGSocket || got.XraySocket != tt.want.XraySocket {
+				t.Errorf("host/dns/sockets = %v %v %q %q, want %v %v %q %q",
+					got.Host, got.DNS, got.AWGSocket, got.XraySocket,
+					tt.want.Host, tt.want.DNS, tt.want.AWGSocket, tt.want.XraySocket)
 			}
 		})
 	}

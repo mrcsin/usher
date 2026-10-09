@@ -458,16 +458,16 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Modify: `cmd/usher/env_test.go`
 - Modify: `cmd/usher/main_test.go`
 
-- [ ] read `USHER_XRAY_SOCKET`, absolute when set; make `USHER_AWG_SOCKET` optional, require at
+- [x] read `USHER_XRAY_SOCKET`, absolute when set; make `USHER_AWG_SOCKET` optional, require at
       least one of the two, and require `USHER_DNS` only with `USHER_AWG_SOCKET`
-- [ ] build the Xray backend when `USHER_XRAY_SOCKET` is set, with the 10 s call deadline of
+- [x] build the Xray backend when `USHER_XRAY_SOCKET` is set, with the 10 s call deadline of
       `pass.go:21`
-- [ ] add an `xray` service to `compose.example.yml`: the official image, `user: "0:1000"`, the
+- [x] add an `xray` service to `compose.example.yml`: the official image, `user: "0:1000"`, the
       example `config.json` (api on `/run/xray/api.sock,0660`, `HandlerService` only, one VLESS
       Reality inbound with `clients: []`) and the shared socket volume
-- [ ] write tests: only Xray, only awg, both, neither (usage error), `USHER_DNS` missing with and
+- [x] write tests: only Xray, only awg, both, neither (usage error), `USHER_DNS` missing with and
       without awg
-- [ ] run `go test -race ./...` - must pass before Task 9
+- [x] run `go test -race ./...` - must pass before Task 9
 
 ### Task 9: Xray end-to-end suite
 

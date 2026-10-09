@@ -21,6 +21,18 @@ services:
     environment:
       # Must equal usher's group.
       AWG_GRPC_SOCKET_GID: "1000"
+  xray:
+    image: ghcr.io/xtls/xray-core:26.9.9
+    restart: unless-stopped
+    # Root uid for the port and the socket; the group must equal usher's group.
+    user: "0:1000"
+    command: ["run", "-config", "/etc/xray/config.json"]
+    ports:
+      - "443:443/tcp"
+    volumes:
+      # Replace the example Reality private key and short ID before use: `xray x25519`.
+      - ./xray/config.json:/etc/xray/config.json:ro
+      - xray-sock:/run/xray
   usher:
     image: ghcr.io/mrcsin/usher:v0.1.0
     restart: unless-stopped
@@ -30,16 +42,21 @@ services:
     depends_on:
       awg:
         condition: service_healthy
+      xray:
+        condition: service_started
     volumes:
       # The host directories belong to uid 1000.
       - ./usher/config:/srv/usher/config:ro
       - ./usher/clients:/srv/usher/clients
       - usher-state:/srv/usher/state
       - awg-sock:/run/awg-grpc
+      - xray-sock:/run/xray
     environment:
       USHER_HOST: "203.0.113.10"
       USHER_AWG_SOCKET: /run/awg-grpc/awg.sock
+      USHER_XRAY_SOCKET: /run/xray/api.sock
       USHER_DNS: "1.1.1.1,1.0.0.1"
 volumes:
   awg-sock:
+  xray-sock:
   usher-state:
