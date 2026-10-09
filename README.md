@@ -23,7 +23,7 @@ itself.
 `config/usher.yml`:
 
 ```yaml
-alice-phone: [awg0]
+alice-phone: [awg0, vless-reality]
 alice-laptop: [awg0, awg1]
 bob: []
 ```
@@ -65,6 +65,9 @@ set turns its service on, and usher exits at start when neither is set. `USHER_D
 with `USHER_AWG_SOCKET` and is not read without it. A deployment from before the Xray driver must
 add `USHER_AWG_SOCKET` to its compose file.
 
+Unsetting a variable turns its service off: usher removes that service's client files and logs its
+interface names as unknown. The entries in `users.json` stay.
+
 Publish each interface port 1:1, and give usher the socket group of the service containers.
 
 If one service is down during a pass, usher logs it, applies the other service and keeps the
@@ -81,7 +84,8 @@ Xray and manages their users. Prepare the Xray container as follows:
 - Run Xray with the group of usher (`user: "0:1000"` in the example), so usher can open the
   socket.
 - List only `HandlerService` in `api.services`.
-- Start every VLESS inbound with `"clients": []`. usher adds the users.
+- Start every VLESS inbound with `"clients": []`; an inbound with startup clients fails. usher adds
+  the users.
 - Name each inbound tag so that it fits the interface name pattern: up to 15 characters from
   letters, digits and `_=+.-`, and the first one a letter, a digit or `_`.
 - After a hard kill, remove the stale socket file before you start Xray again. The official image
@@ -89,9 +93,10 @@ Xray and manages their users. Prepare the Xray container as follows:
 
 usher supports one inbound shape: VLESS with `decryption: none` over raw TCP without a header,
 with Reality security. usher gives every user the flow `xtls-rprx-vision`. An inbound with another
-security, transport, header or decryption, or with a port range, fails with an error that names
-the field; the other inbounds keep working. An inbound with another protocol, such as the `api`
-tunnel, is left alone. An unreferenced VLESS inbound gets an empty user list.
+security, transport, header, finalmask or decryption, with startup clients, or with a port range,
+fails with an error that names the field; the other inbounds keep working. An inbound with
+another protocol, such as the `api` tunnel, or without a tag is left alone. An unreferenced VLESS
+inbound gets an empty user list.
 
 [`deploy/xray/config.json`](deploy/xray/config.json) is an example inbound. Replace its Reality
 private key and short ID before use; `xray x25519` prints a key pair.
@@ -105,7 +110,7 @@ address through the node, allow it in the `finalRules` of the freedom outbound, 
 config in `deploy/e2e/xray/server.json` does for its target.
 
 To issue new keys for a user, stop usher, delete its `<interface>/<user>` entry from
-`users.json` and start it again.
+the `awg` or `xray` group of `users.json` and start it again.
 
 ## License
 

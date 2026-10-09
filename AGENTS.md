@@ -50,15 +50,16 @@ Xray 26.x blocks private destinations for VLESS by default. Run it with `-count=
 go test -tags e2e -count=1 -v ./test/e2e/xray/
 ```
 
-Both suites need `docker compose` without `sudo`. It wipes and recreates the bind-mount directories
-under `.e2e/` (gitignored) at start, and passes `E2E_UID` and `E2E_GID` to compose so usher
-writes them as the test user.
+Both suites need `docker compose` without `sudo`. Each wipes and recreates its own bind-mount root
+at start (`.e2e/`, `.e2e-xray/`, both gitignored) and passes `E2E_UID` and `E2E_GID` to compose so
+usher writes them as the test user.
 
 To copy the tree from macOS to a Linux host, use `COPYFILE_DISABLE=1 tar --no-xattrs`: plain macOS
 tar adds `._*` AppleDouble files. A run killed by a signal leaves containers up; remove them with:
 
 ```sh
 docker compose -f deploy/compose.e2e.yml --profile handshake down -v --remove-orphans
+docker compose -f deploy/compose.e2e-xray.yml --profile client down -v --remove-orphans
 ```
 
 ## Generate
@@ -127,7 +128,8 @@ internal/awg/          AmneziaWG backend: enrollment, address allocation, config
 internal/xray/         Xray backend: decoder tables, enrollment, user reconcile, vless:// links
 internal/clients/      the clients/ mirror
 internal/watch/        file poll, refill ticker and the trigger loop
-deploy/                example compose file, e2e compose file and interface config
+deploy/                example compose file and Xray config (deploy/xray), e2e compose files
+                       of both suites, e2e fixtures (deploy/e2e)
 proto/xray/            vendored Xray protos (see proto/xray/README.md)
 gen/xray/              Go code generated from proto/xray, committed
 tools/                 separate Go module that pins buf and the protobuf plugins

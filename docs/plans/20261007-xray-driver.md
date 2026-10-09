@@ -251,7 +251,7 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 
   var protocols  = map[string]func(proxy []byte, transport, security string) (protocol, error) // by proxy_settings.type
   var transports = map[string]func(stream *internet.StreamConfig) (url.Values, error)            // by protocol_name
-  var securities = map[string]func(settings []byte) (url.Values, error)                         // by security_type
+  var securities = map[string]func(settings []*serial.TypedMessage) (url.Values, error)           // by security_type (full proto name)
   ```
   An empty `security_type` is named `none` in errors.
 - **Inbound reading.** `ListInbounds{isOnlyTags: false}`, then per inbound:
@@ -260,8 +260,9 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
     the flow.
   - The receiver port list must hold one range with `From == To`.
   - The `tcp` transport entry accepts all three header forms of raw TCP and fails any other
-    header. ASSUMPTION: the no-op header arrives as a message of package
-    `xray.transport.internet.headers.noop`; the entry accepts any message of that package.
+    header. Verified against Xray v26.9.9: the no-op header arrives as
+    `xray.transport.internet.headers.noop.ConnectionConfig`; the entry accepts any message of the
+    package `xray.transport.internet.headers.noop`.
   - The Reality security entry gives `pbk`, the X25519 public key of `private_key`
     (`crypto/ecdh`), unpadded URL-safe base64; `sid`, the lowercase hex of the first short ID with
     trailing zero bytes trimmed, so an all-zero ID gives an empty `sid`; `sni`, the first non-empty
@@ -508,7 +509,7 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - [x] `AGENTS.md`: layout (`internal/awg`, `internal/xray`, `proto/xray`, `gen/`, `tools/`,
       `test/e2e/xray`), generation command, Xray e2e, the UUID and the Reality private key in the
       never-logged list; reword "usher saves it before `ApplyPeers`" for both backends
-- [x] move this plan to `docs/plans/completed/` (skipped - archiving is left to the delivery step)
+- [ ] move this plan to `docs/plans/completed/` - ⚠️ not done: archiving is left to the delivery step
 
 ## Post-Completion
 
@@ -519,6 +520,7 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
   trimmed `sid`, which phone clients have not been checked against
 
 **Release**
+- bump the image tag in `deploy/compose.example.yml` from the `<tag>` placeholder to the new release
 - tag the release with a `!` header; the notes state that `USHER_AWG_SOCKET` is now required and
   that the previous image cannot read `users.json` once this version has saved it
 

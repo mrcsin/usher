@@ -34,7 +34,7 @@ services:
       - ./xray/config.json:/etc/xray/config.json:ro
       - xray-sock:/run/xray
   usher:
-    image: ghcr.io/mrcsin/usher:v0.1.0
+    image: ghcr.io/mrcsin/usher:<tag>
     restart: unless-stopped
     cap_drop: [ALL]
     read_only: true

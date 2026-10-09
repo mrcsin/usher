@@ -180,7 +180,7 @@ The link file is `clients/<user>/<tag>.txt`, one line, mode 0600:
 - `users.json` sits in the `usher-state` volume (mode `0600`, uid 1000). To re-key or delete a user:
   `docker compose stop usher`, then
   `docker run --rm -it -u 1000:1000 -v <project>_usher-state:/state alpine vi /state/users.json`,
-  delete the `<interface>/<user>` entry, `docker compose start usher`. A user still in `usher.yml`
+  delete the `<interface>/<user>` entry from the `awg` or `xray` group, `docker compose start usher`. A user still in `usher.yml`
   gets new keys.
 - `USHER_HOST` is an address, not a name: a client that re-resolves a name while its DNS points
   into the tunnel cannot reconnect.
