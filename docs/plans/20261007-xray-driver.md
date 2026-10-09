@@ -500,15 +500,15 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 
 ### Task 11: [Final] Update documentation
 
-- [ ] README: the two socket variables, the Xray delivery contract, link files, switching off in
+- [x] README: the two socket variables, the Xray delivery contract, link files, switching off in
       Xray versus AmneziaWG
-- [ ] `docs/architecture/overview.md`: the backend seam, a backend that is down, the decoder tables
+- [x] `docs/architecture/overview.md`: the backend seam, a backend that is down, the decoder tables
       and how a new shape is added, Xray keys and links, state version 2; generalize the locked
       decisions at lines 64, 65, 70, 71, 74, 76
-- [ ] `AGENTS.md`: layout (`internal/awg`, `internal/xray`, `proto/xray`, `gen/`, `tools/`,
+- [x] `AGENTS.md`: layout (`internal/awg`, `internal/xray`, `proto/xray`, `gen/`, `tools/`,
       `test/e2e/xray`), generation command, Xray e2e, the UUID and the Reality private key in the
       never-logged list; reword "usher saves it before `ApplyPeers`" for both backends
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/` (skipped - archiving is left to the delivery step)
 
 ## Post-Completion
 
