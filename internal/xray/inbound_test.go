@@ -18,6 +18,7 @@ import (
 	"github.com/mrcsin/usher/gen/xray/core"
 	vlessinbound "github.com/mrcsin/usher/gen/xray/proxy/vless/inbound"
 	"github.com/mrcsin/usher/gen/xray/transport/internet"
+	"github.com/mrcsin/usher/gen/xray/transport/internet/reality"
 )
 
 // fakeHandlerService implements command.HandlerServiceClient with func fields.
@@ -39,7 +40,7 @@ func realityStream(t *testing.T) *internet.StreamConfig {
 	t.Helper()
 	return &internet.StreamConfig{
 		ProtocolName:     "tcp",
-		SecurityType:     "reality",
+		SecurityType:     typeName(&reality.Config{}),
 		SecuritySettings: realitySettings(t, validReality(t)),
 	}
 }
@@ -162,8 +163,8 @@ func TestInboundErrorsNeverContainPrivateKey(t *testing.T) {
 	tls.SecurityType = "tls"
 
 	streams := map[string]*internet.StreamConfig{
-		"no server names": {ProtocolName: "tcp", SecurityType: "reality", SecuritySettings: realitySettings(t, bad)},
-		"long key":        {ProtocolName: "tcp", SecurityType: "reality", SecuritySettings: realitySettings(t, shortKey)},
+		"no server names": {ProtocolName: "tcp", SecurityType: typeName(&reality.Config{}), SecuritySettings: realitySettings(t, bad)},
+		"long key":        {ProtocolName: "tcp", SecurityType: typeName(&reality.Config{}), SecuritySettings: realitySettings(t, shortKey)},
 		"garbled":         garbled,
 		"tls with key":    tls,
 	}

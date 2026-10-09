@@ -85,7 +85,7 @@ func decodeInbound(config *core.InboundHandlerConfig, decodeProtocol func([]byte
 	for key, values := range securityParams {
 		params[key] = values
 	}
-	decoded, err := decodeProtocol(config.GetProxySettings().GetValue(), transportName, securityName)
+	decoded, err := decodeProtocol(config.GetProxySettings().GetValue(), transportName, params.Get("security"))
 	if err != nil {
 		return inbound{}, err
 	}

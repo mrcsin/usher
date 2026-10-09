@@ -21,10 +21,10 @@ const securityNone = "none"
 // fingerprintChrome is the TLS client fingerprint of every link; Reality requires one.
 const fingerprintChrome = "chrome"
 
-// securities maps a stream's security type to its decoder. The decoder returns the link
-// parameters of the security.
+// securities maps a stream's security type, the full proto name of its settings message, to its
+// decoder. The decoder returns the link parameters of the security.
 var securities = map[string]func(settings []*serial.TypedMessage) (url.Values, error){
-	securityReality: decodeReality,
+	typeName(&reality.Config{}): decodeReality,
 }
 
 // decodeReality derives the link parameters from the server's Reality settings. The private key
