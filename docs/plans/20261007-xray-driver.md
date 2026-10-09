@@ -395,22 +395,22 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Create: `internal/xray/inbound_test.go`, `internal/xray/protocol_test.go`,
   `internal/xray/transport_test.go`, `internal/xray/security_test.go`
 
-- [ ] add the three decoder tables of Technical Details with one entry each: VLESS, `tcp`,
+- [x] add the three decoder tables of Technical Details with one entry each: VLESS, `tcp`,
       Reality
-- [ ] list inbounds, keep those whose proxy settings type has a protocol entry, decode the single
+- [x] list inbounds, keep those whose proxy settings type has a protocol entry, decode the single
       port, and run the transport and security entries; a missing key or an unsupported value
       fails that inbound with an error naming it
-- [ ] write tests for the VLESS entry: decryption `none` accepted, other decryption failing, flow
+- [x] write tests for the VLESS entry: decryption `none` accepted, other decryption failing, flow
       `xtls-rprx-vision` for `tcp` and Reality
-- [ ] write tests for the `tcp` entry: no transport settings, `tcp.Config` without a header and a
+- [x] write tests for the `tcp` entry: no transport settings, `tcp.Config` without a header and a
       no-op header accepted; an HTTP header failing
-- [ ] write tests for the Reality entry: `pbk` from a fixed private key; `sid` from `ab00000000000000`
+- [x] write tests for the Reality entry: `pbk` from a fixed private key; `sid` from `ab00000000000000`
       as `ab` and from 8 zero bytes as empty; the first server name empty and the second used;
       all server names empty failing
-- [ ] write tests for inbound reading: a valid inbound; a non-VLESS inbound skipped; a port range,
+- [x] write tests for inbound reading: a valid inbound; a non-VLESS inbound skipped; a port range,
       TLS security, empty security (named `none`) and a non-tcp transport each failing
-- [ ] write a leak test: no error or log line contains the private key bytes in any encoding
-- [ ] run `go test -race ./...` - must pass before Task 6
+- [x] write a leak test: no error or log line contains the private key bytes in any encoding
+- [x] run `go test -race ./...` - must pass before Task 6
 
 ### Task 6: Reconcile Xray users
 
