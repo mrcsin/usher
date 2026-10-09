@@ -55,21 +55,26 @@ func serve(ctx context.Context, settings pass.Settings, backends []pass.Backend,
 }
 
 func awgBackend(env environment, log *slog.Logger) pass.Backend {
-	dial := dialSocket(env.AWGSocket)
+	dial := dialAWGSocket(env.AWGSocket)
 	return pass.Backend{
 		Name:   "awg-grpc",
 		Suffix: awg.Suffix,
 		Open: func(ctx context.Context) (pass.Session, error) {
-			session, err := awg.Open(ctx, dial, env.Host, env.DNS, log)
-			if err != nil {
-				return nil, err
-			}
-			return session, nil
+			return asSession(awg.Open(ctx, dial, env.Host, env.DNS, log))
 		},
 	}
 }
 
-func dialSocket(path string) awg.Dial {
+// asSession converts a backend session to pass.Session. On error it returns a nil interface, not
+// an interface that holds a nil pointer.
+func asSession[S pass.Session](session S, err error) (pass.Session, error) {
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func dialAWGSocket(path string) awg.Dial {
 	target := "unix://" + path
 	return func() (awgv1.ManagementServiceClient, func(), error) {
 		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
