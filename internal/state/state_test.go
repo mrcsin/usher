@@ -11,7 +11,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"uuid"
 )
+
+const phoneID = "5f0c1d2e-3a4b-4c5d-8e6f-708192a3b4c5"
 
 func keyOf(b byte) Key {
 	return Key(bytes.Repeat([]byte{b}, KeyLength))
@@ -23,10 +26,13 @@ func testKey(b byte) string {
 
 func validState() *State {
 	return &State{
-		Version: 1,
+		Version: 2,
 		AWG: map[string]Entry{
 			"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
 			"awg1/phone": {Address: netip.MustParseAddr("10.9.1.2"), PrivateKey: keyOf(3), PresharedKey: keyOf(4)},
+		},
+		Xray: map[string]XrayEntry{
+			"vless/phone": {ID: uuid.MustParse(phoneID)},
 		},
 	}
 }
@@ -36,8 +42,8 @@ func TestLoadMissingFileIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if s.Version != 1 || len(s.AWG) != 0 {
-		t.Fatalf("want empty version 1 state, got %+v", s)
+	if s.Version != 2 || len(s.AWG) != 0 || len(s.Xray) != 0 {
+		t.Fatalf("want empty version 2 state, got %+v", s)
 	}
 }
 
@@ -59,9 +65,12 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 // TestSaveFormat pins the users.json format: addresses are plain strings and keys are base64.
 func TestSaveFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "users.json")
-	s := &State{AWG: map[string]Entry{
-		"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
-	}}
+	s := &State{
+		AWG: map[string]Entry{
+			"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
+		},
+		Xray: map[string]XrayEntry{"vless/phone": {ID: uuid.MustParse(phoneID)}},
+	}
 	if err := Save(path, s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -70,18 +79,48 @@ func TestSaveFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{
-  "version": 1,
+  "version": 2,
   "awg": {
     "awg0/phone": {
       "address": "10.8.1.2",
       "private_key": "` + testKey(1) + `",
       "preshared_key": "` + testKey(2) + `"
     }
+  },
+  "xray": {
+    "vless/phone": {
+      "id": "` + phoneID + `"
+    }
   }
 }
 `
 	if string(got) != want {
 		t.Fatalf("users.json = %q, want %q", got, want)
+	}
+}
+
+func TestLoadFirstVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "users.json")
+	data := `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + testKey(1) + `","preshared_key":"` + testKey(2) + `"}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s.AWG) != 1 || s.Xray == nil || len(s.Xray) != 0 {
+		t.Fatalf("want one awg entry and an empty xray group, got %+v", s)
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"version": 2`) {
+		t.Fatalf("Save kept the old version: %s", got)
 	}
 }
 
@@ -143,7 +182,14 @@ func TestLoadRejects(t *testing.T) {
 		name string
 		json string
 	}{
-		{"bad version", `{"version":2,"awg":{}}`},
+		{"bad version", `{"version":3,"awg":{}}`},
+		{"version zero", `{"version":0,"awg":{}}`},
+		{"xray zero id", `{"version":2,"xray":{"vless/a":{"id":"00000000-0000-0000-0000-000000000000"}}}`},
+		{"xray missing id", `{"version":2,"xray":{"vless/a":{}}}`},
+		{"xray id not uuid", `{"version":2,"xray":{"vless/a":{"id":"` + secret + `"}}}`},
+		{"xray name without slash", `{"version":2,"xray":{"vlessa":{"id":"` + phoneID + `"}}}`},
+		{"xray name with two slashes", `{"version":2,"xray":{"vless/a/b":{"id":"` + phoneID + `"}}}`},
+		{"xray name with empty tag", `{"version":2,"xray":{"/a":{"id":"` + phoneID + `"}}}`},
 		{"missing version", `{"awg":{}}`},
 		{"private key not base64", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + secret + `","preshared_key":"` + testKey(2) + `"}}}`},
 		{"private key wrong length", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + encodedSecret + `","preshared_key":"` + testKey(2) + `"}}}`},
@@ -170,7 +216,7 @@ func TestLoadRejects(t *testing.T) {
 			if err == nil {
 				t.Fatal("Load succeeded, want error")
 			}
-			for _, stored := range []string{secret, encodedSecret, testKey(1), testKey(2)} {
+			for _, stored := range []string{secret, encodedSecret, testKey(1), testKey(2), phoneID} {
 				if strings.Contains(err.Error(), stored) {
 					t.Fatalf("error quotes a stored value %q: %v", stored, err)
 				}

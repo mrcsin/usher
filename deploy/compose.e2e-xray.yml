@@ -1,0 +1,75 @@
+name: ushere2exray
+services:
+  # Reality target and plain HTTP page that the proxied requests fetch.
+  target:
+    image: nginx:1.27-alpine
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.3
+    volumes:
+      - ./e2e/xray/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./e2e/xray/target.crt:/etc/nginx/certs/target.crt:ro
+      - ./e2e/xray/target.key:/etc/nginx/certs/target.key:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 1s
+      retries: 30
+  xray:
+    image: ghcr.io/xtls/xray-core:26.9.9
+    # Root uid for the port and the socket; the group equals usher's group.
+    user: "0:${E2E_GID:-0}"
+    command: ["run", "-config", "/etc/xray/config.json"]
+    depends_on:
+      target:
+        condition: service_healthy
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.2
+    volumes:
+      - ./e2e/xray/server.json:/etc/xray/config.json:ro
+      - ../.e2e-xray/sock:/run/xray
+  usher:
+    build:
+      context: ..
+    image: usher:e2e
+    user: ${E2E_UID:-0}:${E2E_GID:-0}
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      xray:
+        condition: service_started
+    networks: [e2e]
+    volumes:
+      - ../.e2e-xray/config:/srv/usher/config:ro
+      - ../.e2e-xray/clients:/srv/usher/clients
+      - ../.e2e-xray/state:/srv/usher/state
+      - ../.e2e-xray/sock:/run/xray
+    environment:
+      USHER_HOST: 172.30.98.2
+      USHER_XRAY_SOCKET: /run/xray/api.sock
+  # Client of one user; the test writes its config to ../.e2e-xray/client/<user>/config.json and
+  # reaches its HTTP proxy at the fixed address.
+  client-alice:
+    profiles: [client]
+    image: ghcr.io/xtls/xray-core:26.9.9
+    command: ["run", "-config", "/etc/xray/config.json"]
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.11
+    volumes:
+      - ../.e2e-xray/client/alice/config.json:/etc/xray/config.json:ro
+  client-bob:
+    profiles: [client]
+    image: ghcr.io/xtls/xray-core:26.9.9
+    command: ["run", "-config", "/etc/xray/config.json"]
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.12
+    volumes:
+      - ../.e2e-xray/client/bob/config.json:/etc/xray/config.json:ro
+networks:
+  e2e:
+    ipam:
+      config:
+        - subnet: 172.30.98.0/24

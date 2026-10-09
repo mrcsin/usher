@@ -16,3 +16,12 @@ fi
 for tags in '' e2e; do
   go vet -tags "$tags" ./...
 done
+
+# The vendored protos in proto/xray are not usher's own, so buf lint is not run on them.
+generated=$(mktemp -d)
+trap 'rm -rf "$generated"' EXIT
+go tool -modfile=tools/go.mod buf generate --output "$generated"
+if ! diff -r gen/xray "$generated/gen/xray"; then
+  echo "format.sh: gen/xray differs from buf generate" >&2
+  exit 1
+fi

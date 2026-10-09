@@ -4,19 +4,19 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net/netip"
+	"io"
+	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
 
 	"github.com/mrcsin/usher/internal/pass"
 )
 
 func TestRun(t *testing.T) {
-	validEnv := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1"}
+	validEnv := map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}
 	tests := []struct {
 		name       string
 		args       []string
@@ -27,8 +27,9 @@ func TestRun(t *testing.T) {
 		{name: "no argument", args: nil, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "unknown argument", args: []string{"serve"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
 		{name: "extra argument", args: []string{"run", "x"}, env: validEnv, wantCode: 2, wantStderr: "usage"},
-		{name: "missing host", args: []string{"run"}, env: map[string]string{"USHER_DNS": "1.1.1.1"}, wantCode: 1, wantStderr: "USHER_HOST"},
-		{name: "bad dns", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "dns.example"}, wantCode: 1, wantStderr: "USHER_DNS"},
+		{name: "missing host", args: []string{"run"}, env: map[string]string{"USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1"}, wantCode: 1, wantStderr: "USHER_HOST"},
+		{name: "no backend", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10"}, wantCode: 1, wantStderr: "USHER_XRAY_SOCKET"},
+		{name: "bad dns", args: []string{"run"}, env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "dns.example"}, wantCode: 1, wantStderr: "USHER_DNS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,20 +60,23 @@ func TestRun(t *testing.T) {
 func TestServe(t *testing.T) {
 	root := t.TempDir()
 	settings := pass.Settings{
-		Host:       netip.MustParseAddr("203.0.113.10"),
-		DNS:        []netip.Addr{netip.MustParseAddr("1.1.1.1")},
 		ConfigPath: filepath.Join(root, "usher.yml"),
 		ClientsDir: filepath.Join(root, "clients"),
 		StatePath:  filepath.Join(root, "users.json"),
 	}
-	dial := func() (awgv1.ManagementServiceClient, func(), error) { return nil, nil, errors.New("no socket") }
+	backends := []pass.Backend{{
+		Name:   "fake",
+		Suffix: ".conf",
+		Open:   func(context.Context) (pass.Session, error) { return nil, errors.New("no socket") },
+	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	time.AfterFunc(200*time.Millisecond, cancel)
 
 	var stderr bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&stderr, nil))
 	done := make(chan int, 1)
-	go func() { done <- serve(ctx, settings, dial, &stderr) }()
+	go func() { done <- serve(ctx, settings, backends, log) }()
 	select {
 	case code := <-done:
 		if code != 0 {
@@ -86,5 +90,32 @@ func TestServe(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
 		}
+	}
+}
+
+func TestBackendsFor(t *testing.T) {
+	tests := []struct {
+		name string
+		env  environment
+		want []string
+	}{
+		{name: "only awg", env: environment{AWGSocket: "/run/awg.sock"}, want: []string{"awg-grpc"}},
+		{name: "only xray", env: environment{XraySocket: "/run/xray.sock"}, want: []string{"xray"}},
+		{
+			name: "both",
+			env:  environment{AWGSocket: "/run/awg.sock", XraySocket: "/run/xray.sock"},
+			want: []string{"awg-grpc", "xray"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, b := range backendsFor(tt.env, slog.New(slog.NewTextHandler(io.Discard, nil))) {
+				got = append(got, b.Name)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("backends = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

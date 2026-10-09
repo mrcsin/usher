@@ -1,0 +1,41 @@
+{
+  "log": { "loglevel": "warning" },
+  "api": {
+    "tag": "api",
+    "listen": "/run/xray/api.sock,0660",
+    "services": ["HandlerService"]
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "target": "target:443",
+          "serverNames": ["target.e2e"],
+          "privateKey": "vo6FtYE8B1Gdc2qDj35dZPqY2ciiIh3oITS0u0xUE9Q",
+          "shortIds": ["ab12"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          { "action": "allow", "ip": ["172.30.98.3/32"] }
+        ]
+      }
+    }
+  ]
+}

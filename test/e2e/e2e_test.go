@@ -8,7 +8,6 @@ package e2e
 import (
 	"bytes"
 	"encoding/base64"
-	"flag"
 	"fmt"
 	"maps"
 	"net/netip"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mrcsin/usher/internal/state"
+	"github.com/mrcsin/usher/test/e2e/e2eutil"
 )
 
 const (
@@ -47,13 +47,16 @@ const (
 	clientDir   = "client"
 )
 
-var scratchDirs = []string{configDir, clientsDir, stateDir, clientDir}
+var project = &e2eutil.Project{
+	RepoDir:     repoDir,
+	ComposeFile: composeFile,
+	ScratchRoot: scratchRoot,
+	Dirs:        []string{configDir, clientsDir, stateDir, clientDir},
+	Profile:     clientProfile,
+	Services:    []string{"awg", "usher"},
+}
 
 var bothUsers = usherYAML("phone", "laptop")
-
-func e2ePath(elem ...string) string {
-	return filepath.Join(append([]string{repoDir, scratchRoot}, elem...)...)
-}
 
 func usherYAML(users ...string) string {
 	var b strings.Builder
@@ -67,66 +70,7 @@ func usherYAML(users ...string) string {
 type peerSet map[string]string
 
 func TestMain(m *testing.M) {
-	os.Exit(runMain(m))
-}
-
-// runMain creates the bind-mount directories as the test user, so dockerd does not create them
-// as root and usher, which runs as the test user, can write them. A run that was killed leaves
-// the project up, so runMain takes it down before it starts.
-func runMain(m *testing.M) int {
-	flag.Parse()
-	if count := flag.Lookup("test.count").Value.String(); count != "1" {
-		fmt.Fprintf(os.Stderr, "-count=%s: TestE2E restarts the awg service, so it runs once per process; use -count=1\n", count)
-		return 1
-	}
-	down()
-	if err := os.RemoveAll(e2ePath()); err != nil {
-		fmt.Fprintf(os.Stderr, "removing .e2e: %v\n", err)
-		return 1
-	}
-	for _, dir := range scratchDirs {
-		if err := os.MkdirAll(e2ePath(dir), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "creating %s: %v\n", dir, err)
-			return 1
-		}
-	}
-	defer down()
-
-	out, err := composeCmd("up", "-d", "--build", "--wait", "awg", "usher").CombinedOutput()
-	fmt.Fprintf(os.Stderr, "docker compose up:\n%s\n", out)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker compose up: %v\n", err)
-		printLogs()
-		return 1
-	}
-	code := m.Run()
-	if code != 0 {
-		printLogs()
-	}
-	return code
-}
-
-func down() {
-	out, err := composeCmd("--profile", clientProfile, "down", "-v", "--remove-orphans", "--timeout", "10").CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "docker compose down: %v\n%s\n", err, out)
-	}
-}
-
-func printLogs() {
-	out, err := composeCmd("--profile", clientProfile, "logs", "--no-color").CombinedOutput()
-	fmt.Fprintf(os.Stderr, "docker compose logs (err %v):\n%s\n", err, out)
-}
-
-// composeCmd builds docker compose on the e2e project, run from the repository root with the
-// uid and gid of the test user, so usher can write the bind mounts and open the socket.
-func composeCmd(args ...string) *exec.Cmd {
-	cmd := exec.Command("docker", append([]string{"compose", "-f", composeFile}, args...)...)
-	cmd.Dir = repoDir
-	cmd.Env = append(os.Environ(),
-		"E2E_UID="+strconv.Itoa(os.Getuid()),
-		"E2E_GID="+strconv.Itoa(os.Getgid()))
-	return cmd
+	os.Exit(project.Main(m))
 }
 
 func run(cmd *exec.Cmd) (stdout, stderr string, err error) {
@@ -135,15 +79,6 @@ func run(cmd *exec.Cmd) (stdout, stderr string, err error) {
 	cmd.Stderr = &errBuf
 	err = cmd.Run()
 	return outBuf.String(), errBuf.String(), err
-}
-
-func compose(t *testing.T, args ...string) string {
-	t.Helper()
-	stdout, stderr, err := run(composeCmd(args...))
-	if err != nil {
-		t.Fatalf("docker compose %s: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout, stderr)
-	}
-	return stdout
 }
 
 // TestE2E runs its subtests in order; each one starts from the state the previous one left.
@@ -165,10 +100,10 @@ func TestE2E(t *testing.T) {
 }
 
 func testEnroll(t *testing.T) {
-	writeUsherConfig(t, bothUsers)
-	deadline := within(changeTimeout)
+	project.WriteConfig(t, bothUsers)
+	deadline := e2eutil.Within(changeTimeout)
 	for _, user := range []string{"phone", "laptop"} {
-		waitFor(t, deadline, "client config of "+user, func() error {
+		e2eutil.WaitFor(t, deadline, "client config of "+user, func() error {
 			return checkClientFile(user)
 		})
 	}
@@ -198,25 +133,25 @@ func testEnroll(t *testing.T) {
 // awg-grpc's smoke test: the image has no resolvconf for DNS, and a full-tunnel AllowedIPs needs
 // sysctl writes a non-privileged container cannot make.
 func testHandshake(t *testing.T) {
-	original, err := os.ReadFile(e2ePath(clientsDir, "phone", iface+".conf"))
+	original, err := os.ReadFile(project.Path(clientsDir, "phone", iface+".conf"))
 	if err != nil {
 		t.Fatalf("reading the phone config: %v", err)
 	}
 	conf := clientConfigCopy(t, string(original))
-	path := e2ePath(clientDir, "awgc0.conf")
+	path := project.Path(clientDir, "awgc0.conf")
 	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
 		t.Fatalf("writing client config: %v", err)
 	}
 
-	compose(t, "--profile", clientProfile, "up", "-d", "--wait", "client")
+	project.Compose(t, "--profile", clientProfile, "up", "-d", "--wait", "client")
 	defer removeClient(t)
 
 	// The first packet into the tunnel starts the handshake; its reply may be lost to it.
-	stdout, stderr, err := run(composeCmd("exec", "-T", "client", "ping", "-c", "1", "-W", "5", interfaceAddr))
+	stdout, stderr, err := run(project.Cmd("exec", "-T", "client", "ping", "-c", "1", "-W", "5", interfaceAddr))
 	t.Logf("first ping %s (err %v):\n%s%s", interfaceAddr, err, stdout, stderr)
 
 	phoneKey := publicKey(loadEntries(t)[state.EntryName(iface, "phone")])
-	waitFor(t, within(changeTimeout), "handshake of phone", func() error {
+	e2eutil.WaitFor(t, e2eutil.Within(changeTimeout), "handshake of phone", func() error {
 		peers, err := dump()
 		if err != nil {
 			return err
@@ -251,10 +186,10 @@ func clientConfigCopy(t *testing.T, original string) string {
 func removeClient(t *testing.T) {
 	t.Helper()
 	if t.Failed() {
-		out, err := composeCmd("--profile", clientProfile, "logs", "--no-color", "client").CombinedOutput()
+		out, err := project.Cmd("--profile", clientProfile, "logs", "--no-color", "client").CombinedOutput()
 		t.Logf("docker compose logs client (err %v):\n%s", err, out)
 	}
-	if out, err := composeCmd("--profile", clientProfile, "rm", "-sf", "client").CombinedOutput(); err != nil {
+	if out, err := project.Cmd("--profile", clientProfile, "rm", "-sf", "client").CombinedOutput(); err != nil {
 		t.Errorf("removing client: %v\n%s", err, out)
 	}
 }
@@ -269,11 +204,11 @@ func testSwitchOff(t *testing.T) {
 		publicKey(laptopBefore): laptopBefore.Route().String(),
 	}
 
-	writeUsherConfig(t, usherYAML("phone"))
-	deadline := within(changeTimeout)
+	project.WriteConfig(t, usherYAML("phone"))
+	deadline := e2eutil.Within(changeTimeout)
 	waitPeers(t, deadline, peerSet{phoneKey: both[phoneKey]})
-	waitFor(t, deadline, "removal of clients/laptop", func() error {
-		if _, err := os.Stat(e2ePath(clientsDir, "laptop")); err == nil {
+	e2eutil.WaitFor(t, deadline, "removal of clients/laptop", func() error {
+		if _, err := os.Stat(project.Path(clientsDir, "laptop")); err == nil {
 			return fmt.Errorf("clients/laptop still exists")
 		}
 		return nil
@@ -282,13 +217,13 @@ func testSwitchOff(t *testing.T) {
 		t.Fatalf("users.json entry of laptop changed while the user was off")
 	}
 
-	writeUsherConfig(t, bothUsers)
-	deadline = within(changeTimeout)
+	project.WriteConfig(t, bothUsers)
+	deadline = e2eutil.Within(changeTimeout)
 	waitPeers(t, deadline, both)
 	if got := loadEntries(t)[state.EntryName(iface, "laptop")]; got != laptopBefore {
 		t.Fatalf("users.json entry of laptop changed after the user came back")
 	}
-	waitFor(t, deadline, "client config of laptop", func() error {
+	e2eutil.WaitFor(t, deadline, "client config of laptop", func() error {
 		return checkClientFile("laptop")
 	})
 }
@@ -298,7 +233,7 @@ func testSwitchOff(t *testing.T) {
 // last valid file on its refill ticker and keep clients/ as it was. The log line of the refill
 // pass proves the restart emptied the kernel: its added list names both users.
 func testBrokenFileAndRefill(t *testing.T) {
-	defer writeUsherConfig(t, bothUsers)
+	defer project.WriteConfig(t, bothUsers)
 
 	before, err := dump()
 	if err != nil {
@@ -309,18 +244,18 @@ func testBrokenFileAndRefill(t *testing.T) {
 	}
 	clientsBefore := readClients(t)
 
-	writeUsherConfig(t, fmt.Sprintf("phone: [%s\nlaptop: [%s]\n", iface, iface))
+	project.WriteConfig(t, fmt.Sprintf("phone: [%s\nlaptop: [%s]\n", iface, iface))
 	errorLine := regexp.MustCompile(`usher\.yml.*line \d+`)
-	waitFor(t, within(changeTimeout), "usher.yml error in the usher log", func() error {
+	e2eutil.WaitFor(t, e2eutil.Within(changeTimeout), "usher.yml error in the usher log", func() error {
 		return checkLog(errorLine, "")
 	})
 
 	// Docker takes --since at second precision, so the stamp may include the second before it.
 	restartedAt := time.Now().UTC().Format(time.RFC3339)
-	compose(t, "restart", "awg")
+	project.Compose(t, "restart", "awg")
 
-	deadline := within(refillTimeout)
-	waitFor(t, deadline, "refill of the peer set", func() error {
+	deadline := e2eutil.Within(refillTimeout)
+	e2eutil.WaitFor(t, deadline, "refill of the peer set", func() error {
 		got, err := dump()
 		if err != nil {
 			return err
@@ -331,7 +266,7 @@ func testBrokenFileAndRefill(t *testing.T) {
 		return nil
 	})
 	refilled := regexp.MustCompile(`peers changed.*added="?\[laptop phone\]`)
-	waitFor(t, deadline, "refill line in the usher log", func() error {
+	e2eutil.WaitFor(t, deadline, "refill line in the usher log", func() error {
 		return checkLog(refilled, restartedAt)
 	})
 
@@ -345,7 +280,7 @@ func checkLog(re *regexp.Regexp, since string) error {
 	if since != "" {
 		args = append(args, "--since", since)
 	}
-	stdout, stderr, err := run(composeCmd(append(args, "usher")...))
+	stdout, stderr, err := run(project.Cmd(append(args, "usher")...))
 	if err != nil {
 		return fmt.Errorf("docker compose logs: %w: %s", err, stderr)
 	}
@@ -355,21 +290,9 @@ func checkLog(re *regexp.Regexp, since string) error {
 	return nil
 }
 
-func writeUsherConfig(t *testing.T, content string) {
-	t.Helper()
-	dir := e2ePath(configDir)
-	tmp := filepath.Join(dir, ".usher.yml.tmp")
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		t.Fatalf("writing usher.yml: %v", err)
-	}
-	if err := os.Rename(tmp, filepath.Join(dir, "usher.yml")); err != nil {
-		t.Fatalf("replacing usher.yml: %v", err)
-	}
-}
-
 // checkClientFile reports why clients/<user>/<iface>.conf is not a mode 0600 file yet.
 func checkClientFile(user string) error {
-	info, err := os.Stat(e2ePath(clientsDir, user, iface+".conf"))
+	info, err := os.Stat(project.Path(clientsDir, user, iface+".conf"))
 	if err != nil {
 		return err
 	}
@@ -381,7 +304,7 @@ func checkClientFile(user string) error {
 
 func readClients(t *testing.T) map[string]string {
 	t.Helper()
-	root := e2ePath(clientsDir)
+	root := project.Path(clientsDir)
 	files := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -403,7 +326,7 @@ func readClients(t *testing.T) map[string]string {
 
 func loadEntries(t *testing.T) map[string]state.Entry {
 	t.Helper()
-	s, err := state.Load(e2ePath(stateDir, "users.json"))
+	s, err := state.Load(project.Path(stateDir, "users.json"))
 	if err != nil {
 		t.Fatalf("loading users.json: %v", err)
 	}
@@ -433,7 +356,7 @@ func (d dumpSet) allowed() peerSet {
 // dump reads the peers of the interface from the wrapper container. The preshared key column is
 // never kept.
 func dump() (dumpSet, error) {
-	stdout, stderr, err := run(composeCmd("exec", "-T", "awg", "awg", "show", iface, "dump"))
+	stdout, stderr, err := run(project.Cmd("exec", "-T", "awg", "awg", "show", iface, "dump"))
 	if err != nil {
 		return nil, fmt.Errorf("awg show dump: %w: %s", err, stderr)
 	}
@@ -456,7 +379,7 @@ func dump() (dumpSet, error) {
 
 func waitPeers(t *testing.T, deadline time.Time, want peerSet) {
 	t.Helper()
-	waitFor(t, deadline, fmt.Sprintf("a peer set of %d peers", len(want)), func() error {
+	e2eutil.WaitFor(t, deadline, fmt.Sprintf("a peer set of %d peers", len(want)), func() error {
 		got, err := dump()
 		if err != nil {
 			return err
@@ -466,20 +389,4 @@ func waitPeers(t *testing.T, deadline time.Time, want peerSet) {
 		}
 		return nil
 	})
-}
-
-func within(timeout time.Duration) time.Time {
-	return time.Now().Add(timeout)
-}
-
-func waitFor(t *testing.T, deadline time.Time, what string, check func() error) {
-	t.Helper()
-	var err error
-	for time.Now().Before(deadline) {
-		if err = check(); err == nil {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatalf("no %s before the deadline: %v", what, err)
 }

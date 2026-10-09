@@ -12,11 +12,15 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"uuid"
 
 	"github.com/mrcsin/usher/internal/atomicfile"
 )
 
-const version = 1
+// version is the format that Save writes. Load also accepts firstVersion, which has no xray group.
+const version = 2
+
+const firstVersion = 1
 
 const fileMode = 0o600
 
@@ -68,15 +72,23 @@ func (e Entry) Route() netip.Prefix {
 	return netip.PrefixFrom(e.Address, hostBits)
 }
 
-// EntryName returns the key of a user's entry on an interface in State.AWG.
+// XrayEntry holds the credential of one user on one Xray inbound.
+type XrayEntry struct {
+	ID uuid.UUID `json:"id"`
+}
+
+// EntryName returns the key of a user's entry on an interface or inbound, in State.AWG or
+// State.Xray.
 func EntryName(iface, user string) string {
 	return iface + "/" + user
 }
 
-// State is the content of users.json. AWG maps "interface/user" to its entry.
+// State is the content of users.json. AWG and Xray map "interface/user" and "tag/user" to the
+// entry of that user.
 type State struct {
-	Version int              `json:"version"`
-	AWG     map[string]Entry `json:"awg"`
+	Version int                  `json:"version"`
+	AWG     map[string]Entry     `json:"awg"`
+	Xray    map[string]XrayEntry `json:"xray"`
 }
 
 // InterfaceEntries yields the user name and the entry of every entry on the interface.
@@ -95,7 +107,7 @@ func (s *State) InterfaceEntries(iface string) iter.Seq2[string, Entry] {
 func Load(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return &State{Version: version, AWG: map[string]Entry{}}, nil
+		return &State{Version: version, AWG: map[string]Entry{}, Xray: map[string]XrayEntry{}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
@@ -104,14 +116,22 @@ func Load(path string) (*State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if s.Version != version {
+	if s.Version != version && s.Version != firstVersion {
 		return nil, fmt.Errorf("%s: unsupported version %d", path, s.Version)
 	}
 	if s.AWG == nil {
 		s.AWG = map[string]Entry{}
 	}
+	if s.Xray == nil {
+		s.Xray = map[string]XrayEntry{}
+	}
 	for name, e := range s.AWG {
-		if err := validate(name, e); err != nil {
+		if err := validateAWG(name, e); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	for name, e := range s.Xray {
+		if err := validateXray(name, e); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
@@ -130,10 +150,27 @@ func Save(path string, s *State) error {
 	return atomicfile.Write(path, data, fileMode)
 }
 
-func validate(name string, e Entry) error {
+func validateName(name string) error {
 	iface, user, ok := strings.Cut(name, "/")
 	if !ok || iface == "" || user == "" || strings.Contains(user, "/") {
-		return fmt.Errorf("entry %q: name is not interface/user", name)
+		return fmt.Errorf("entry %q: name is not group/user", name)
+	}
+	return nil
+}
+
+func validateXray(name string, e XrayEntry) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	if e.ID == uuid.Nil() {
+		return fmt.Errorf("entry %q: id is missing", name)
+	}
+	return nil
+}
+
+func validateAWG(name string, e Entry) error {
+	if err := validateName(name); err != nil {
+		return err
 	}
 	if !e.Address.Is4() {
 		return fmt.Errorf("entry %q: address is not IPv4", name)
