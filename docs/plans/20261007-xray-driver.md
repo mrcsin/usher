@@ -440,13 +440,13 @@ reported by awg-grpc" (`pass.go:211`) and nothing reaches Xray.
 - Create: `internal/xray/link_test.go`
 - Create: `internal/xray/testdata/` (golden link)
 
-- [ ] implement the VLESS entry's `link` as in Technical Details and write it into
+- [x] implement the VLESS entry's `link` as in Technical Details and write it into
       `clients/<user>/<tag>.txt` in the session's prepare step
-- [ ] read the share-link proposal (XTLS/Xray-core discussion #716) and pin parameter names,
+- [x] read the share-link proposal (XTLS/Xray-core discussion #716) and pin parameter names,
       values and encodings in a golden test; ASSUMPTION: the proposal covers the Reality
       parameters `pbk`, `sid` and `spx`
-- [ ] write tests: golden link; a link with an empty `sid`; the user name escaped in the fragment
-- [ ] run `go test -race ./...` - must pass before Task 8
+- [x] write tests: golden link; a link with an empty `sid`; the user name escaped in the fragment
+- [x] run `go test -race ./...` - must pass before Task 8
 
 ### Task 8: Wire the Xray backend and the deploy example
 

@@ -18,6 +18,9 @@ import (
 // securityNone names an empty security type in errors.
 const securityNone = "none"
 
+// fingerprintChrome is the TLS client fingerprint of every link; Reality requires one.
+const fingerprintChrome = "chrome"
+
 // securities maps a stream's security type to its decoder. The decoder returns the link
 // parameters of the security.
 var securities = map[string]func(settings []*serial.TypedMessage) (url.Values, error){
@@ -48,6 +51,7 @@ func decodeReality(settings []*serial.TypedMessage) (url.Values, error) {
 	return url.Values{
 		"security": {securityReality},
 		"sni":      {serverName},
+		"fp":       {fingerprintChrome},
 		"pbk":      {base64.RawURLEncoding.EncodeToString(private.PublicKey().Bytes())},
 		"sid":      {hex.EncodeToString(bytes.TrimRight(config.GetShortIds()[0], "\x00"))},
 	}, nil

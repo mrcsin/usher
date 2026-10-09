@@ -5,6 +5,8 @@ package xray
 import (
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 
 	"google.golang.org/protobuf/proto"
 
@@ -28,6 +30,9 @@ const (
 type protocol struct {
 	// account returns the account Xray holds for an entry.
 	account func(e state.XrayEntry) *serial.TypedMessage
+	// link returns the client link of a user. params are the inbound's transport and security
+	// parameters.
+	link func(e state.XrayEntry, user string, host netip.Addr, port uint16, params url.Values) string
 }
 
 // protocols maps the type of an inbound's proxy settings to its decoder. The decoder gets the
@@ -61,5 +66,6 @@ func decodeVLESS(settings []byte, transport, security string) (protocol, error) 
 		account: func(e state.XrayEntry) *serial.TypedMessage {
 			return toTypedMessage(&vlessaccount.Account{Id: e.ID.String(), Flow: flowVision})
 		},
+		link: vlessLink,
 	}, nil
 }

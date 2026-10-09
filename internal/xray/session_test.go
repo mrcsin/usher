@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -96,7 +97,7 @@ func newSessionEnv(t *testing.T, xray *fakeXray) *sessionEnv {
 func (e *sessionEnv) open() *Session {
 	e.t.Helper()
 	dial := func() (command.HandlerServiceClient, func(), error) { return e.xray, func() {}, nil }
-	s, err := Open(context.Background(), dial, slog.New(slog.NewTextHandler(e.logs, nil)))
+	s, err := Open(context.Background(), dial, netip.MustParseAddr("203.0.113.7"), slog.New(slog.NewTextHandler(e.logs, nil)))
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestOpen(t *testing.T) {
 
 	t.Run("dial error", func(t *testing.T) {
 		dial := func() (command.HandlerServiceClient, func(), error) { return nil, nil, errors.New("no socket") }
-		if _, err := Open(context.Background(), dial, slog.Default()); err == nil || !strings.Contains(err.Error(), "no socket") {
+		if _, err := Open(context.Background(), dial, netip.MustParseAddr("203.0.113.7"), slog.Default()); err == nil || !strings.Contains(err.Error(), "no socket") {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -151,7 +152,7 @@ func TestOpen(t *testing.T) {
 		dial := func() (command.HandlerServiceClient, func(), error) {
 			return &failingList{}, func() { closed = true }, nil
 		}
-		if _, err := Open(context.Background(), dial, slog.Default()); err == nil {
+		if _, err := Open(context.Background(), dial, netip.MustParseAddr("203.0.113.7"), slog.Default()); err == nil {
 			t.Fatal("no error")
 		}
 		if !closed {

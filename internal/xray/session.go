@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/mrcsin/usher/gen/xray/app/proxyman/command"
 	userproto "github.com/mrcsin/usher/gen/xray/common/protocol"
 	"github.com/mrcsin/usher/gen/xray/common/serial"
+	"github.com/mrcsin/usher/internal/clients"
 	"github.com/mrcsin/usher/internal/state"
 )
 
@@ -37,11 +39,12 @@ type Session struct {
 	closeConn func()
 	inbounds  map[string]inbound
 	names     []string
+	host      netip.Addr
 	log       *slog.Logger
 }
 
-// Open connects to Xray and lists its inbounds.
-func Open(ctx context.Context, dial Dial, log *slog.Logger) (*Session, error) {
+// Open connects to Xray and lists its inbounds. host goes into the client links.
+func Open(ctx context.Context, dial Dial, host netip.Addr, log *slog.Logger) (*Session, error) {
 	client, closeConn, err := dial()
 	if err != nil {
 		return nil, fmt.Errorf("connecting to xray: %w", err)
@@ -57,6 +60,7 @@ func Open(ctx context.Context, dial Dial, log *slog.Logger) (*Session, error) {
 		client:    client,
 		closeConn: closeConn,
 		inbounds:  make(map[string]inbound, len(listed)),
+		host:      host,
 		log:       log,
 	}
 	for _, in := range listed {
@@ -71,13 +75,20 @@ func (s *Session) Interfaces() []string {
 	return s.names
 }
 
-// Prepare enrolls the users on the inbound. It reports whether it changed st. It fails an inbound
-// that could not be decoded.
+// Prepare enrolls the users on the inbound and renders their link files, keyed by clients.Path.
+// It reports whether it changed st. It fails an inbound that could not be decoded.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
-	if err := s.inbounds[name].err; err != nil {
-		return nil, false, err
+	in := s.inbounds[name]
+	if in.err != nil {
+		return nil, false, in.err
 	}
-	return nil, enroll(st, name, users), nil
+	changed := enroll(st, name, users)
+	files := make(map[string][]byte, len(users))
+	for _, user := range users {
+		link := in.protocol.link(st.Xray[state.EntryName(name, user)], user, s.host, in.port, in.params)
+		files[clients.Path(user, name, Suffix)] = []byte(link + "\n")
+	}
+	return files, changed, nil
 }
 
 // Apply makes the inbound hold exactly the users: it removes the users that are not wanted or

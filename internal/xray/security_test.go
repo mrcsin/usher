@@ -51,22 +51,22 @@ func TestDecodeReality(t *testing.T) {
 		{
 			name:   "trimmed short id",
 			change: func(*reality.Config) {},
-			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "pbk": {wantPBK}, "sid": {"ab"}},
+			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "fp": {"chrome"}, "pbk": {wantPBK}, "sid": {"ab"}},
 		},
 		{
 			name:   "all-zero short id is empty",
 			change: func(c *reality.Config) { c.ShortIds = [][]byte{make([]byte, 8)} },
-			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "pbk": {wantPBK}, "sid": {""}},
+			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "fp": {"chrome"}, "pbk": {wantPBK}, "sid": {""}},
 		},
 		{
 			name:   "first short id wins",
 			change: func(c *reality.Config) { c.ShortIds = [][]byte{{0x01, 0x02, 0, 0, 0, 0, 0, 0}, {0xff}} },
-			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "pbk": {wantPBK}, "sid": {"0102"}},
+			want:   url.Values{"security": {"reality"}, "sni": {"example.com"}, "fp": {"chrome"}, "pbk": {wantPBK}, "sid": {"0102"}},
 		},
 		{
 			name:   "first non-empty server name",
 			change: func(c *reality.Config) { c.ServerNames = []string{"", "second.example"} },
-			want:   url.Values{"security": {"reality"}, "sni": {"second.example"}, "pbk": {wantPBK}, "sid": {"ab"}},
+			want:   url.Values{"security": {"reality"}, "sni": {"second.example"}, "fp": {"chrome"}, "pbk": {wantPBK}, "sid": {"ab"}},
 		},
 		{
 			name:    "no usable server name",
