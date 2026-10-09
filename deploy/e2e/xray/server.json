@@ -22,7 +22,7 @@
           "target": "target:443",
           "serverNames": ["target.e2e"],
           "privateKey": "vo6FtYE8B1Gdc2qDj35dZPqY2ciiIh3oITS0u0xUE9Q",
-          "shortIds": ["0123456789abcdef"]
+          "shortIds": ["ab12"]
         }
       }
     }

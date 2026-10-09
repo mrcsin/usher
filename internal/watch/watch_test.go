@@ -11,7 +11,7 @@ import (
 
 const (
 	testPoll   = 5 * time.Millisecond
-	testSettle = 40 * time.Millisecond
+	testSettle = 200 * time.Millisecond
 	idleRefill = time.Hour
 	quiet      = 200 * time.Millisecond
 	deadline   = 3 * time.Second

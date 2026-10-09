@@ -37,6 +37,10 @@ const (
 	changeTimeout  = 10 * time.Second
 	refillTimeout  = 60 * time.Second
 	requestTimeout = 5 * time.Second
+	// refillTick is a little longer than the 30 s refill interval.
+	refillTick = 35 * time.Second
+	// failedFetches is the number of consecutive failed fetches that prove a user is off.
+	failedFetches = 3
 )
 
 // The bind-mount directories of the compose project, under scratchRoot.
@@ -184,28 +188,58 @@ func testConnect(t *testing.T) {
 	}
 }
 
-// testSwitchOff removes bob from usher.yml. A new connection through bob's link must fail while
-// alice's link still works.
+// testSwitchOff removes bob from usher.yml. Once usher logs the removal, a new connection through
+// bob's link must keep failing while alice's link still works.
 func testSwitchOff(t *testing.T) {
 	writeUsherConfig(t, usherYAML("alice"))
-	waitFor(t, within(changeTimeout), "a failing connection through the link of bob", func() error {
-		if err := fetch(proxies["bob"]); err == nil {
-			return errors.New("the link of bob still works")
+	waitFor(t, within(changeTimeout), "the removal of bob in the usher log", func() error {
+		if !strings.Contains(usherLogs(t), "removed=[bob]") {
+			return errors.New("no removed=[bob] line yet")
 		}
 		return nil
 	})
+	assertFailsRepeatedly(t, "bob after the removal", proxies["bob"])
 	if err := fetch(proxies["alice"]); err != nil {
 		t.Fatalf("link of alice after bob was removed: %v", err)
 	}
 }
 
 // testRefill restarts xray, which empties its user list. usher must put alice back on its refill
-// ticker.
+// ticker and leave bob out. Once the list is full again, a refill tick must change nothing.
 func testRefill(t *testing.T) {
 	compose(t, "restart", "xray")
 	waitFor(t, within(refillTimeout), "a page through the link of alice after the restart", func() error {
 		return fetch(proxies["alice"])
 	})
+	assertFailsRepeatedly(t, "bob after the restart", proxies["bob"])
+
+	changes := strings.Count(usherLogs(t), "users changed")
+	time.Sleep(refillTick)
+	if got := strings.Count(usherLogs(t), "users changed"); got != changes {
+		t.Fatalf("usher changed users on a steady refill tick: %d lines before, %d after", changes, got)
+	}
+}
+
+// assertFailsRepeatedly requires several consecutive failed fetches, so one transient error
+// cannot stand for a removed user.
+func assertFailsRepeatedly(t *testing.T, what, proxy string) {
+	t.Helper()
+	for range failedFetches {
+		if err := fetch(proxy); err == nil {
+			t.Fatalf("the link of %s still works", what)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// usherLogs returns the log of the usher container.
+func usherLogs(t *testing.T) string {
+	t.Helper()
+	out, err := composeCmd("logs", "--no-color", "usher").CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker compose logs usher: %v\n%s", err, out)
+	}
+	return string(out)
 }
 
 func usherYAML(users ...string) string {
