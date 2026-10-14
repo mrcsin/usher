@@ -1,7 +1,6 @@
 package xray
 
 import (
-	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/proxy/hysteria/account"
 	"github.com/xtls/xray-core/proxy/trojan"
 	"github.com/xtls/xray-core/proxy/vless"
@@ -16,6 +15,9 @@ const vlessVisionFlow = "xtls-rprx-vision"
 
 // protocolSpec describes how one inbound protocol holds its users.
 type protocolSpec struct {
+	// proxyType is the full name of the proxy settings message that Xray stores for an inbound of
+	// the protocol.
+	proxyType string
 	// usesID is true when the credential is a UUID in XrayEntry.ID, false when it is a password in
 	// XrayEntry.Password.
 	usesID bool
@@ -29,7 +31,8 @@ type protocolSpec struct {
 // protocols maps the lower case protocol of an inbound to its spec.
 var protocols = map[string]protocolSpec{
 	"vless": {
-		usesID: true,
+		proxyType: "xray.proxy.vless.inbound.Config",
+		usesID:    true,
 		account: func(in Inbound, e state.XrayEntry) proto.Message {
 			return &vless.Account{Id: e.ID.String(), Flow: vlessFlow(in), Encryption: "none"}
 		},
@@ -41,7 +44,8 @@ var protocols = map[string]protocolSpec{
 		},
 	},
 	"vmess": {
-		usesID: true,
+		proxyType: "xray.proxy.vmess.inbound.Config",
+		usesID:    true,
 		account: func(_ Inbound, e state.XrayEntry) proto.Message {
 			return &vmess.Account{Id: e.ID.String()}
 		},
@@ -54,6 +58,7 @@ var protocols = map[string]protocolSpec{
 		},
 	},
 	"trojan": {
+		proxyType: "xray.proxy.trojan.ServerConfig",
 		account: func(_ Inbound, e state.XrayEntry) proto.Message {
 			return &trojan.Account{Password: e.Password}
 		},
@@ -65,6 +70,7 @@ var protocols = map[string]protocolSpec{
 		},
 	},
 	"hysteria": {
+		proxyType: "xray.proxy.hysteria.ServerConfig",
 		account: func(_ Inbound, e state.XrayEntry) proto.Message {
 			return &account.Account{Auth: e.Password}
 		},
@@ -84,9 +90,4 @@ func vlessFlow(in Inbound) string {
 		return vlessVisionFlow
 	}
 	return ""
-}
-
-// typedAccount wraps the account of the entry for an AddUserOperation.
-func typedAccount(in Inbound, e state.XrayEntry) *serial.TypedMessage {
-	return serial.ToTypedMessage(protocols[in.Protocol].account(in, e))
 }

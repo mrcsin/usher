@@ -22,8 +22,8 @@ import (
 )
 
 // Inbound is one managed inbound of the Xray server config. Raw is the inbound object with the
-// config aliases normalized to their canonical names; Detour is the same object decoded into Xray's
-// own type. A non-nil Err means the inbound failed validation and must not be used.
+// config aliases normalized to their canonical names. A non-nil Err means the inbound failed
+// validation and must not be used.
 type Inbound struct {
 	Tag      string
 	Protocol string // lower case: vless, hysteria, vmess or trojan
@@ -35,7 +35,6 @@ type Inbound struct {
 	ServerName string
 	Hints      Hints
 	Raw        map[string]any
-	Detour     conf.InboundDetourConfig
 	Err        error
 }
 
@@ -64,9 +63,8 @@ var (
 	// server requires.
 	realityFingerprints = []string{"chrome", "firefox", "safari"}
 
-	managedProtocols = map[string]bool{"vless": true, "hysteria": true, "vmess": true, "trojan": true}
-	networkAliases   = map[string]string{"tcp": "raw", "splithttp": "xhttp", "websocket": "ws"}
-	networks         = map[string]bool{
+	networkAliases = map[string]string{"tcp": "raw", "splithttp": "xhttp", "websocket": "ws"}
+	networks       = map[string]bool{
 		"raw": true, "ws": true, "grpc": true, "httpupgrade": true, "xhttp": true, "hysteria": true,
 	}
 	hopPortsPattern = regexp.MustCompile(`^([0-9]{1,5})-([0-9]{1,5})$`)
@@ -114,7 +112,7 @@ func ReadConfig(path string) ([]Inbound, error) {
 		tag, _ := raw["tag"].(string)
 		protocol, _ := raw["protocol"].(string)
 		protocol = strings.ToLower(protocol)
-		if tag == "" || !managedProtocols[protocol] {
+		if _, managed := protocols[protocol]; tag == "" || !managed {
 			continue
 		}
 		in := Inbound{Tag: tag, Protocol: protocol, Raw: raw}
@@ -188,17 +186,28 @@ func (in *Inbound) validate() error {
 	if field, reason := in.checkXHTTP(stream); field != "" {
 		return fail(field, reason)
 	}
+	if in.Security == "reality" {
+		if _, _, field, reason := realityKeys(object(stream["realitySettings"])); field != "" {
+			return fail("streamSettings.realitySettings."+field, reason)
+		}
+	}
 	if field, reason := in.readHints(stream); field != "" {
 		return fail(field, reason)
 	}
 
-	// The decode catches field type errors that the checks above do not look at.
+	// The decode catches field type errors that the checks above do not look at. Xray's decoders
+	// can quote the value they reject, so the error names the Go field of a type mismatch at most.
 	encoded, err := json.Marshal(in.Raw)
 	if err != nil {
 		return fail("inbound", "cannot be encoded")
 	}
-	if err := json.Unmarshal(encoded, &in.Detour); err != nil {
-		return fail("inbound", "does not decode as an Xray inbound: "+err.Error())
+	var detour conf.InboundDetourConfig
+	if err := json.Unmarshal(encoded, &detour); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			return fail("inbound", "does not decode as an Xray inbound: wrong type at "+typeErr.Field)
+		}
+		return fail("inbound", "does not decode as an Xray inbound")
 	}
 	return nil
 }
@@ -253,7 +262,8 @@ func isEmptyList(v any) bool {
 }
 
 // normalizeStream rewrites the aliases of streamSettings to their canonical names and fills in
-// Network and Security. It returns the streamSettings object, created when the inbound has none.
+// Network and Security. It returns the streamSettings object, a detached empty one when the inbound
+// has none.
 func (in *Inbound) normalizeStream() (map[string]any, error) {
 	v, present := in.Raw["streamSettings"]
 	stream, ok := v.(map[string]any)
@@ -261,8 +271,9 @@ func (in *Inbound) normalizeStream() (map[string]any, error) {
 		return nil, errors.New("want an object")
 	}
 	if stream == nil {
+		// Not stored in Raw: an inbound without streamSettings must build the way Xray builds
+		// the original file.
 		stream = map[string]any{}
-		in.Raw["streamSettings"] = stream
 	}
 
 	// Xray lets method win over network.
@@ -501,7 +512,8 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 }
 
 // serverName resolves the name the client sends. An explicit x-usher.sni wins over the server
-// config, which is how an operator with only wildcard Reality names gets a usable link.
+// config on TLS. Reality looks the name up in serverNames by exact match, so there the override
+// must be one of the entries; it is how an operator picks one of several names.
 func (in *Inbound) serverName(stream map[string]any, override string) (name, field, reason string) {
 	switch in.Security {
 	case "tls":
@@ -513,19 +525,19 @@ func (in *Inbound) serverName(stream map[string]any, override string) (name, fie
 			return "", "x-usher.sni", "tls needs it or tlsSettings.serverName"
 		}
 	case "reality":
-		name = override
-		if name == "" {
-			names, _ := object(stream["realitySettings"])["serverNames"].([]any)
-			for _, v := range names {
-				if s, _ := v.(string); s != "" && !strings.Contains(s, "*") {
-					name = s
-					break
-				}
+		names, _ := object(stream["realitySettings"])["serverNames"].([]any)
+		if override != "" {
+			if !slices.Contains(names, any(override)) || strings.Contains(override, "*") {
+				return "", "x-usher.sni", "reality needs one of its serverNames entries, without a wildcard"
+			}
+			return override, "", ""
+		}
+		for _, v := range names {
+			if s, _ := v.(string); s != "" && !strings.Contains(s, "*") {
+				return s, "", ""
 			}
 		}
-		if name == "" {
-			return "", "streamSettings.realitySettings.serverNames", "no entry without a wildcard, set x-usher.sni"
-		}
+		return "", "streamSettings.realitySettings.serverNames", "no entry without a wildcard"
 	}
 	return name, "", ""
 }
@@ -533,15 +545,8 @@ func (in *Inbound) serverName(stream map[string]any, override string) (name, fie
 func hasInlineCertificate(stream map[string]any) bool {
 	certs, _ := object(stream["tlsSettings"])["certificates"].([]any)
 	for _, c := range certs {
-		switch certificate := object(c)["certificate"].(type) {
-		case string:
-			if certificate != "" {
-				return true
-			}
-		case []any:
-			if len(certificate) > 0 {
-				return true
-			}
+		if certificate, _ := object(c)["certificate"].([]any); len(certificate) > 0 {
+			return true
 		}
 	}
 	return false

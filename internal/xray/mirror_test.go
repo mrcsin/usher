@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -12,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"reflect"
 	"strings"
@@ -342,10 +344,10 @@ func TestClientOutboundReality(t *testing.T) {
 	})
 	t.Run("overrides", func(t *testing.T) {
 		raw := base(t)
-		setPath(raw, "x-usher.sni", "front.example.com")
+		setPath(raw, "x-usher.sni", "b.example.com")
 		setPath(raw, "x-usher.fingerprint", "firefox")
 		r := realityOf(mirrorOne(t, readOne(t, raw)))
-		if r["serverName"] != "front.example.com" || r["fingerprint"] != "firefox" {
+		if r["serverName"] != "b.example.com" || r["fingerprint"] != "firefox" {
 			t.Errorf("reality = %v", r)
 		}
 	})
@@ -359,12 +361,16 @@ func TestClientOutboundReality(t *testing.T) {
 		{"private key too short", "privateKey", "AAAA"},
 		{"seed not base64", "mldsa65Seed", "!!!"},
 		{"seed too short", "mldsa65Seed", "AAAA"},
+		{"seed equals private key", "mldsa65Seed", testPrivateKey},
 	}
 	for _, tt := range failures {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := base(t)
 			setPath(raw, "streamSettings.realitySettings."+tt.field, tt.value)
 			in := readOne(t, raw)
+			if in.Err == nil || !strings.Contains(in.Err.Error(), tt.field) {
+				t.Errorf("validation err = %v, want it to name %s", in.Err, tt.field)
+			}
 			_, err := clientOutbound(in, "h", testEntry(in))
 			if err == nil || !strings.Contains(err.Error(), tt.field) {
 				t.Fatalf("err = %v, want it to name %s", err, tt.field)
@@ -517,7 +523,7 @@ func TestClientOutboundOverrides(t *testing.T) {
 }
 
 // TestClientOutboundLeaksNothing feeds an inbound full of server-only material and checks that
-// none of it reaches any outbound.
+// none of it reaches the outbound, the client files or the log.
 func TestClientOutboundLeaksNothing(t *testing.T) {
 	cert, _ := selfSignedPEM(t)
 	var seed [mldsa65.SeedSize]byte
@@ -534,7 +540,11 @@ func TestClientOutboundLeaksNothing(t *testing.T) {
 
 	kinds := []string{"reality", "vless-tls", "xhttp", "hysteria"}
 	for _, kind := range kinds {
-		for _, trust := range []string{"ca", "pin"} {
+		trusts := []string{"ca", "pin"}
+		if kind == "reality" {
+			trusts = trusts[:1] // Reality has no trust setting
+		}
+		for _, trust := range trusts {
 			t.Run(kind+"/"+trust, func(t *testing.T) {
 				raw := baseInbound(t, kind)
 				setPath(raw, "settings.fallbacks", []any{map[string]any{"dest": fallbackDest}})
@@ -548,7 +558,7 @@ func TestClientOutboundLeaksNothing(t *testing.T) {
 				setPath(raw, "streamSettings.realitySettings.privateKey", testPrivateKey)
 				setPath(raw, "streamSettings.realitySettings.mldsa65Seed", mldsaSeed)
 				setPath(raw, "streamSettings.finalmask.quicParams", map[string]any{"congestion": "bbr"})
-				if trust == "pin" && kind != "reality" {
+				if trust == "pin" {
 					setPath(raw, "x-usher.trust", "pin")
 				}
 				in := readOne(t, raw)
@@ -557,9 +567,20 @@ func TestClientOutboundLeaksNothing(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				var logs bytes.Buffer
+				files, err := renderFiles(slog.New(slog.NewTextHandler(&logs, nil)), in, "198.51.100.7", "alice", testEntry(in))
+				if err != nil {
+					t.Fatal(err)
+				}
+				outputs := map[string]string{"outbound": string(encoded), "log": logs.String()}
+				for path, content := range files {
+					outputs[path] = string(content)
+				}
 				for _, secret := range secrets {
-					if strings.Contains(string(encoded), secret) {
-						t.Errorf("outbound contains %q:\n%s", secret, encoded)
+					for name, text := range outputs {
+						if strings.Contains(text, secret) {
+							t.Errorf("%s contains %q:\n%s", name, secret, text)
+						}
 					}
 				}
 			})

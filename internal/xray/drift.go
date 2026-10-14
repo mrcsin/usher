@@ -19,12 +19,28 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// managedProxyTypes are the proxy settings types of the inbounds the backend manages.
-var managedProxyTypes = []string{
-	"xray.proxy.vless.inbound.Config",
-	"xray.proxy.hysteria.ServerConfig",
-	"xray.proxy.vmess.inbound.Config",
-	"xray.proxy.trojan.ServerConfig",
+// driftError is the reason a running inbound differs from the file. unusable is true when the
+// running inbound cannot take the file's users: it is missing or runs another protocol.
+type driftError struct {
+	reason   string
+	unusable bool
+}
+
+func (e *driftError) Error() string { return e.reason }
+
+// errDoesNotBuild stands for every error of Xray's inbound Build. Xray quotes the keys and short
+// ids it rejects, so its text never reaches a reason.
+var errDoesNotBuild = errors.New("the file inbound does not build as an Xray inbound")
+
+// isManagedProxyType reports whether proxyType is the proxy settings type of a protocol the
+// backend manages.
+func isManagedProxyType(proxyType string) bool {
+	for _, spec := range protocols {
+		if spec.proxyType == proxyType {
+			return true
+		}
+	}
+	return false
 }
 
 // checkDrift compares every valid inbound of the file with the inbound of the same tag in the
@@ -32,8 +48,8 @@ var managedProxyTypes = []string{
 // is missing; a tag without an entry matches. A mismatch means Xray runs an older file, so the
 // client files for the tag are not trustworthy until Xray restarts.
 //
-// Certificate entries that name a file are left out on both sides: usher cannot read the key
-// files, and Xray reloads those files itself. A reason names the differing parts and never a
+// Certificate entries that name a file are left out on both sides: Xray reloads those files
+// itself, so a changed file is no drift. A reason names the differing parts and never a
 // value. Running inbounds of a managed protocol that the file does not define are logged.
 func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *slog.Logger,
 	inbounds []Inbound) (map[string]error, error) {
@@ -55,26 +71,36 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 		}
 		live, ok := running[in.Tag]
 		if !ok {
-			drift[in.Tag] = fmt.Errorf("inbound %q: not running in Xray, restart Xray to load the file", in.Tag)
+			drift[in.Tag] = &driftError{
+				reason:   fmt.Sprintf("inbound %q: not running in Xray, restart Xray to load the file", in.Tag),
+				unusable: true,
+			}
 			continue
 		}
 		parts, err := differingParts(in, live)
 		switch {
 		case err != nil:
-			drift[in.Tag] = fmt.Errorf("inbound %q: comparing with the running Xray: %w", in.Tag, err)
+			drift[in.Tag] = &driftError{
+				reason: fmt.Sprintf("inbound %q: comparing with the running Xray: %v", in.Tag, err),
+			}
 		case len(parts) > 0:
-			drift[in.Tag] = fmt.Errorf("inbound %q: differs from the running Xray in %s, restart Xray to load the file",
-				in.Tag, strings.Join(parts, ", "))
+			drift[in.Tag] = &driftError{
+				reason: fmt.Sprintf("inbound %q: differs from the running Xray in %s, restart Xray to load the file",
+					in.Tag, strings.Join(parts, ", ")),
+				unusable: slices.Contains(parts, partProxyType),
+			}
 		}
 	}
 
 	for tag, handler := range running {
-		if !inFile[tag] && slices.Contains(managedProxyTypes, handler.GetProxySettings().GetType()) {
+		if !inFile[tag] && isManagedProxyType(handler.GetProxySettings().GetType()) {
 			log.Warn("xray runs an inbound that the config file does not define", "inbound", tag)
 		}
 	}
 	return drift, nil
 }
+
+const partProxyType = "proxy type"
 
 // differingParts returns the names of the parts of the file inbound that differ from the running
 // one: "proxy type", "proxy settings", "port", "stream settings" and "receiver settings".
@@ -89,16 +115,16 @@ func differingParts(in Inbound, live *core.InboundHandlerConfig) ([]string, erro
 	}
 	var detour conf.InboundDetourConfig
 	if err := json.Unmarshal(encoded, &detour); err != nil {
-		return nil, fmt.Errorf("decoding the file inbound: %w", err)
+		return nil, errDoesNotBuild
 	}
 	built, err := detour.Build()
 	if err != nil {
-		return nil, fmt.Errorf("building the file inbound: %w", err)
+		return nil, errDoesNotBuild
 	}
 
 	var parts []string
 	if built.GetProxySettings().GetType() != live.GetProxySettings().GetType() {
-		parts = append(parts, "proxy type")
+		parts = append(parts, partProxyType)
 	} else if equal, err := equalMessages(built.GetProxySettings(), live.GetProxySettings()); err != nil {
 		return nil, err
 	} else if !equal {

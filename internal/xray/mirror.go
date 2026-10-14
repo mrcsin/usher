@@ -33,23 +33,16 @@ func clientOutbound(in Inbound, host string, entry state.XrayEntry) (map[string]
 	if in.Hints.Address != "" {
 		host = in.Hints.Address
 	}
-	endpoint := map[string]any{"address": host, "port": in.Hints.Port}
-
-	var settings map[string]any
+	settings := map[string]any{"address": host, "port": in.Hints.Port}
 	switch in.Protocol {
 	case "vless":
-		settings = map[string]any{"id": entry.ID.String(), "encryption": "none", "flow": vlessFlow(in)}
+		settings["id"], settings["encryption"], settings["flow"] = entry.ID.String(), "none", vlessFlow(in)
 	case "vmess":
-		settings = map[string]any{"id": entry.ID.String(), "security": "auto"}
+		settings["id"], settings["security"] = entry.ID.String(), "auto"
 	case "trojan":
-		settings = map[string]any{"password": entry.Password}
+		settings["password"] = entry.Password
 	case "hysteria":
-		settings = map[string]any{"version": 2}
-	default:
-		return nil, fmt.Errorf("inbound %q: protocol: unsupported", in.Tag)
-	}
-	for k, v := range endpoint {
-		settings[k] = v
+		settings["version"] = 2
 	}
 	return map[string]any{
 		"tag":            in.Tag,
@@ -201,21 +194,39 @@ func inlineCertificatePin(tls map[string]any) (string, error) {
 	return "", errors.New("no inline certificate")
 }
 
-// clientReality rebuilds the realitySettings block from the server's: the public key of its
-// privateKey, its first short id and, with an mldsa65Seed, the matching verify key.
-func clientReality(in Inbound, server map[string]any) (map[string]any, error) {
-	fail := func(field, reason string) error {
-		return fmt.Errorf("inbound %q: streamSettings.realitySettings.%s: %s", in.Tag, field, reason)
-	}
-
+// realityKeys decodes the privateKey and the optional mldsa65Seed of a realitySettings object. A
+// problem is returned as the field and a reason that never quotes a value, because Xray's own
+// errors do. seed is nil without an mldsa65Seed.
+func realityKeys(server map[string]any) (key *ecdh.PrivateKey, seed []byte, field, reason string) {
 	private, _ := server["privateKey"].(string)
 	raw, err := base64.RawURLEncoding.DecodeString(private)
 	if err != nil {
-		return nil, fail("privateKey", "want base64url")
+		return nil, nil, "privateKey", "want base64url"
 	}
-	key, err := ecdh.X25519().NewPrivateKey(raw)
+	key, err = ecdh.X25519().NewPrivateKey(raw)
 	if err != nil {
-		return nil, fail("privateKey", "want a 32 byte X25519 key")
+		return nil, nil, "privateKey", "want a 32 byte X25519 key"
+	}
+	encodedSeed, _ := server["mldsa65Seed"].(string)
+	if encodedSeed == "" {
+		return key, nil, "", ""
+	}
+	seed, err = base64.RawURLEncoding.DecodeString(encodedSeed)
+	if err != nil || len(seed) != mldsa65.SeedSize {
+		return nil, nil, "mldsa65Seed", "want 32 bytes in base64url"
+	}
+	if encodedSeed == private {
+		return nil, nil, "mldsa65Seed", "must differ from privateKey"
+	}
+	return key, seed, "", ""
+}
+
+// clientReality rebuilds the realitySettings block from the server's: the public key of its
+// privateKey, its first short id and, with an mldsa65Seed, the matching verify key.
+func clientReality(in Inbound, server map[string]any) (map[string]any, error) {
+	key, seed, field, reason := realityKeys(server)
+	if field != "" {
+		return nil, fmt.Errorf("inbound %q: streamSettings.realitySettings.%s: %s", in.Tag, field, reason)
 	}
 
 	shortID := ""
@@ -229,13 +240,8 @@ func clientReality(in Inbound, server map[string]any) (map[string]any, error) {
 		"fingerprint": in.Hints.Fingerprint,
 		"spiderX":     "/",
 	}
-
-	if seed, _ := server["mldsa65Seed"].(string); seed != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(seed)
-		if err != nil || len(decoded) != mldsa65.SeedSize {
-			return nil, fail("mldsa65Seed", "want 32 bytes in base64url")
-		}
-		public, _ := mldsa65.NewKeyFromSeed((*[mldsa65.SeedSize]byte)(decoded))
+	if seed != nil {
+		public, _ := mldsa65.NewKeyFromSeed((*[mldsa65.SeedSize]byte)(seed))
 		reality["mldsa65Verify"] = base64.RawURLEncoding.EncodeToString(public.Bytes())
 	}
 	return reality, nil

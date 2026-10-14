@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/xtls/xray-core/app/proxyman/command"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf"
+	xjson "github.com/xtls/xray-core/infra/conf/json"
 	"google.golang.org/grpc"
 )
 
@@ -41,6 +44,7 @@ type driftConfig struct {
 	realityProto  string
 	certContent   string
 	hysteriaCerts string
+	realityExtra  string // extra members of the reality inbound, each followed by a comma
 	extra         string // extra inbound objects, each followed by a comma
 }
 
@@ -72,7 +76,7 @@ func (c driftConfig) write(t *testing.T) string {
   "inbounds": [
     %[8]s
     {"tag": "api-in", "protocol": "dokodemo-door", "port": 10085, "settings": {"address": "127.0.0.1"}},
-    {"tag": "reality", "protocol": %[1]q, "port": %[2]d,
+    {"tag": "reality", "protocol": %[1]q, "port": %[2]d, %[9]s
      "settings": {"clients": [], "decryption": "none"},
      "streamSettings": {"network": "raw", "security": "reality",
        "realitySettings": {"privateKey": %[3]q, "serverNames": ["www.example.com"],
@@ -90,7 +94,7 @@ func (c driftConfig) write(t *testing.T) string {
        "hysteriaSettings": {"version": 2}}}
   ]
 }`, c.realityProto, c.realityPort, c.realityKey, c.shortID,
-		filepath.Join(c.dir, "ws.pem"), filepath.Join(c.dir, "ws.key"), c.hysteriaCerts, c.extra)
+		filepath.Join(c.dir, "ws.pem"), filepath.Join(c.dir, "ws.key"), c.hysteriaCerts, c.extra, c.realityExtra)
 	path := filepath.Join(c.dir, "config.json")
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -98,21 +102,24 @@ func (c driftConfig) write(t *testing.T) string {
 	return path
 }
 
-// runningFrom builds every inbound of the file at path the way Xray does at start.
+// runningFrom builds every inbound of the file at path the way Xray does at start: the original
+// file goes through Xray's own reader and config types, with none of usher's normalization.
 func runningFrom(t *testing.T, path string) []*core.InboundHandlerConfig {
 	t.Helper()
-	inbounds, err := ReadConfig(path)
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
+	var cfg conf.Config
+	if err := json.NewDecoder(&xjson.Reader{Reader: f}).Decode(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	var running []*core.InboundHandlerConfig
-	for _, in := range inbounds {
-		if in.Err != nil {
-			t.Fatalf("%s: %v", in.Tag, in.Err)
-		}
-		built, err := in.Detour.Build()
+	for i := range cfg.InboundConfigs {
+		built, err := cfg.InboundConfigs[i].Build()
 		if err != nil {
-			t.Fatalf("%s: %v", in.Tag, err)
+			t.Fatalf("%s: %v", cfg.InboundConfigs[i].Tag, err)
 		}
 		running = append(running, built)
 	}
@@ -127,6 +134,8 @@ func TestCheckDrift(t *testing.T) {
 		want    map[string][]string // tag to the substrings of its reason
 	}{
 		{name: "match"},
+		{name: "sniffing change", change: func(c *driftConfig) { c.realityExtra = `"sniffing": {"enabled": true},` },
+			want: map[string][]string{"reality": {"receiver settings"}}},
 		{name: "port change", change: func(c *driftConfig) { c.realityPort = 8444 },
 			want: map[string][]string{"reality": {"port"}}},
 		{name: "shortIds change", change: func(c *driftConfig) { c.shortID = "cd34" },
@@ -259,5 +268,102 @@ func TestCheckDriftListError(t *testing.T) {
 		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), nil)
 	if err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Errorf("err = %v, want the list error wrapped", err)
+	}
+}
+
+// TestCheckDriftMatchesXrayBuild reads the original file with usher and with Xray's own types. A
+// file without streamSettings and a file written in aliases must show no drift.
+func TestCheckDriftMatchesXrayBuild(t *testing.T) {
+	plain := newDriftConfig(t.TempDir())
+	plain.extra = `{"tag": "plain", "protocol": "vless", "port": 9001,
+		"settings": {"clients": [], "decryption": "none"}},`
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"no streamSettings", plain.write(t)},
+		{"aliases", "testdata/aliases.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbounds, err := ReadConfig(tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, in := range inbounds {
+				if in.Err != nil {
+					t.Fatalf("%s: %v", in.Tag, in.Err)
+				}
+			}
+			drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: runningFrom(t, tt.path)},
+				slog.New(slog.DiscardHandler), inbounds)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(drift) != 0 {
+				t.Errorf("drift = %v, want none", drift)
+			}
+		})
+	}
+}
+
+// TestCheckDriftDoesNotQuoteBuildErrors gives the file a short id that Xray rejects by quoting it.
+// The reason must not carry the value.
+func TestCheckDriftDoesNotQuoteBuildErrors(t *testing.T) {
+	const bad = "zzSHORTID-SECRET"
+	base := newDriftConfig(t.TempDir())
+	running := runningFrom(t, base.write(t))
+	broken := base
+	broken.shortID = bad
+	inbounds, err := ReadConfig(broken.write(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inbounds[0].Err != nil || inbounds[0].Tag != "reality" {
+		t.Fatalf("want the reality inbound to pass validation, got %+v", inbounds[0].Err)
+	}
+
+	drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+		slog.New(slog.DiscardHandler), inbounds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := drift["reality"]
+	if reason == nil || !strings.Contains(reason.Error(), "does not build") {
+		t.Fatalf("reason = %v, want the fixed build text", reason)
+	}
+	if strings.Contains(reason.Error(), bad) {
+		t.Errorf("reason quotes the short id: %v", reason)
+	}
+}
+
+func TestCheckDriftUnusable(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(c *driftConfig)
+		want   bool
+	}{
+		{"protocol change", func(c *driftConfig) { c.realityProto = "vmess" }, true},
+		{"port change", func(c *driftConfig) { c.realityPort = 8444 }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := newDriftConfig(t.TempDir())
+			running := runningFrom(t, base.write(t))
+			tt.change(&base)
+			inbounds, err := ReadConfig(base.write(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+				slog.New(slog.DiscardHandler), inbounds)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var driftErr *driftError
+			if !errors.As(drift["reality"], &driftErr) || driftErr.unusable != tt.want {
+				t.Errorf("drift = %#v, want unusable = %v", drift["reality"], tt.want)
+			}
+		})
 	}
 }

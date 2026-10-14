@@ -7,11 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/xtls/libxray/share"
 	"github.com/xtls/xray-core/infra/conf"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/mrcsin/usher/internal/clients"
 )
@@ -25,6 +28,17 @@ func TestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var tags []string
+	for _, in := range inbounds {
+		tags = append(tags, in.Tag)
+	}
+	wantTags := []string{"vless-reality", "vless-xhttp", "vless-xhttp-extra", "vless-ws", "hy2", "hy2-hop",
+		"hy2-pin", "vmess-ws", "trojan-raw"}
+	slices.Sort(tags)
+	slices.Sort(wantTags)
+	if !slices.Equal(tags, wantTags) {
+		t.Fatalf("golden server.json holds %v, want the shapes of the acceptance list %v", tags, wantTags)
+	}
 	for _, in := range inbounds {
 		t.Run(in.Tag, func(t *testing.T) {
 			if in.Err != nil {
@@ -37,8 +51,9 @@ func TestGolden(t *testing.T) {
 			checkGolden(t, files, in.Tag, JSONSuffix, true)
 			checkGolden(t, files, in.Tag, LinkSuffix, in.Tag != "hy2-pin")
 
+			clientJSON := files[clients.Path("alice", in.Tag, JSONSuffix)]
 			var parsed conf.Config
-			if err := json.Unmarshal(files[clients.Path("alice", in.Tag, JSONSuffix)], &parsed); err != nil {
+			if err := json.Unmarshal(clientJSON, &parsed); err != nil {
 				t.Fatalf("client config does not decode: %v", err)
 			}
 			for _, outbound := range parsed.OutboundConfigs {
@@ -53,10 +68,64 @@ func TestGolden(t *testing.T) {
 				}
 				var round conf.Config
 				if err := json.Unmarshal(back, &round); err != nil || len(round.OutboundConfigs) != 1 {
-					t.Errorf("link parsed back to %d outbounds, err %v, want 1", len(round.OutboundConfigs), err)
+					t.Fatalf("link parsed back to %d outbounds, err %v, want 1", len(round.OutboundConfigs), err)
 				}
+				if in.Hints.HopPorts != "" {
+					// A hop link names the range in its authority and parses back to its first port.
+					first, _, _ := strings.Cut(in.Hints.HopPorts, "-")
+					parsed = withPort(t, clientJSON, first)
+				}
+				assertSameOutbound(t, parsed.OutboundConfigs[0], round.OutboundConfigs[0])
 			}
 		})
+	}
+}
+
+func withPort(t *testing.T, clientJSON []byte, port string) conf.Config {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(clientJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	outbound := object(doc["outbounds"].([]any)[0])
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object(outbound["settings"])["port"] = n
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg conf.Config
+	if err := json.Unmarshal(encoded, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// assertSameOutbound builds both outbounds and requires the same proxy settings (address, port, id
+// or password, flow) and the same stream settings (transport, TLS or Reality block, xhttp extra,
+// salamander, hop). The link carries no tag.
+func assertSameOutbound(t *testing.T, fromJSON, fromLink conf.OutboundDetourConfig) {
+	t.Helper()
+	want, err := fromJSON.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := fromLink.Build()
+	if err != nil {
+		t.Fatalf("outbound of the link does not build: %v", err)
+	}
+	wantProxy, _ := want.GetProxySettings().GetInstance()
+	gotProxy, _ := got.GetProxySettings().GetInstance()
+	if !proto.Equal(wantProxy, gotProxy) {
+		t.Errorf("proxy settings differ:\n json %v\n link %v", wantProxy, gotProxy)
+	}
+	wantSender, _ := want.GetSenderSettings().GetInstance()
+	gotSender, _ := got.GetSenderSettings().GetInstance()
+	if !proto.Equal(wantSender, gotSender) {
+		t.Errorf("sender settings differ:\n json %v\n link %v", wantSender, gotSender)
 	}
 }
 

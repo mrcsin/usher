@@ -20,29 +20,40 @@ import (
 	"github.com/xtls/xray-core/proxy/vmess"
 	"google.golang.org/grpc"
 
+	"github.com/mrcsin/usher/internal/clients"
 	"github.com/mrcsin/usher/internal/state"
 )
 
 // userService is a fake Xray HandlerService that keeps the users of each inbound in memory.
 type userService struct {
 	command.HandlerServiceClient
-	running []*core.InboundHandlerConfig
-	users   map[string][]*protocol.User // tag to users
-	failAdd map[string]bool             // emails whose AddUser fails
-	alters  int
+	running    []*core.InboundHandlerConfig
+	users      map[string][]*protocol.User // tag to users
+	failAdd    map[string]bool             // emails whose AddUser fails
+	failRemove map[string]bool             // emails whose RemoveUser fails
+	listErr    error                       // answer of GetInboundUsers
+	inboundErr error                       // answer of ListInbounds
+	alters     int
 }
 
 func newUserService(running []*core.InboundHandlerConfig) *userService {
-	return &userService{running: running, users: map[string][]*protocol.User{}, failAdd: map[string]bool{}}
+	return &userService{running: running, users: map[string][]*protocol.User{},
+		failAdd: map[string]bool{}, failRemove: map[string]bool{}}
 }
 
 func (f *userService) ListInbounds(_ context.Context, _ *command.ListInboundsRequest,
 	_ ...grpc.CallOption) (*command.ListInboundsResponse, error) {
+	if f.inboundErr != nil {
+		return nil, f.inboundErr
+	}
 	return &command.ListInboundsResponse{Inbounds: f.running}, nil
 }
 
 func (f *userService) GetInboundUsers(_ context.Context, req *command.GetInboundUserRequest,
 	_ ...grpc.CallOption) (*command.GetInboundUserResponse, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return &command.GetInboundUserResponse{Users: f.users[req.GetTag()]}, nil
 }
 
@@ -67,6 +78,9 @@ func (f *userService) AlterInbound(_ context.Context, req *command.AlterInboundR
 		}
 		f.users[tag] = append(f.users[tag], op.GetUser())
 	case *command.RemoveUserOperation:
+		if f.failRemove[op.GetEmail()] {
+			return nil, errors.New("remove refused")
+		}
 		before := len(f.users[tag])
 		f.users[tag] = slices.DeleteFunc(f.users[tag], func(u *protocol.User) bool {
 			return u.GetEmail() == op.GetEmail()
@@ -95,7 +109,7 @@ func (f *userService) credentials(t *testing.T, in Inbound) map[string]string {
 }
 
 func (f *userService) seed(in Inbound, email string, e state.XrayEntry) {
-	f.users[in.Tag] = append(f.users[in.Tag], &protocol.User{Email: email, Account: typedAccount(in, e)})
+	f.users[in.Tag] = append(f.users[in.Tag], &protocol.User{Email: email, Account: serial.ToTypedMessage(protocols[in.Protocol].account(in, e))})
 }
 
 type sessionFixture struct {
@@ -112,7 +126,7 @@ func newSessionFixture(t *testing.T, change func(c *driftConfig)) sessionFixture
 		change(&cfg)
 	}
 	path := cfg.write(t)
-	service := newUserService(runningValid(t, path))
+	service := newUserService(runningFrom(t, path))
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
 	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
@@ -133,15 +147,26 @@ func newState() *state.State {
 
 func idEntry() state.XrayEntry { return state.XrayEntry{ID: uuid.New()} }
 
+// badInbound is an inbound that fails validation (clients are not empty) and still builds in Xray.
+const badInbound = `{"tag": "bad", "protocol": "vless", "port": 9000,
+	"settings": {"clients": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5"}], "decryption": "none"}},`
+
 func TestSessionInterfaces(t *testing.T) {
-	f := newSessionFixture(t, func(c *driftConfig) {
-		c.extra = `{"tag": "bad", "protocol": "vless", "port": 9000, "settings": {"clients": [{"id": "x"}]}},`
-	})
+	f := newSessionFixture(t, func(c *driftConfig) { c.extra = badInbound })
 	if got, want := f.session.Interfaces(), []string{"bad", "reality", "ws", "hy2"}; !slices.Equal(got, want) {
 		t.Errorf("Interfaces() = %v, want %v", got, want)
 	}
-	if _, _, err := f.session.Prepare(newState(), "bad", []string{"alice"}); err == nil {
-		t.Error("Prepare on an invalid inbound succeeded")
+}
+
+func TestSessionInterfacesDeduplicates(t *testing.T) {
+	dup := `{"tag": "ws", "protocol": "vless", "port": 9002,
+		"settings": {"clients": [], "decryption": "none"}},`
+	f := newSessionFixture(t, func(c *driftConfig) { c.extra = dup })
+	if got, want := f.session.Interfaces(), []string{"ws", "reality", "hy2"}; !slices.Equal(got, want) {
+		t.Errorf("Interfaces() = %v, want %v", got, want)
+	}
+	if err := f.session.byTag["ws"].Err; err == nil || !strings.Contains(err.Error(), "defined twice") {
+		t.Errorf("ws entry error = %v, want the duplicate error", err)
 	}
 }
 
@@ -155,8 +180,17 @@ func TestSessionPrepare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || files == nil {
-		t.Errorf("changed = %v, files = %v, want changed and a non-nil map", changed, files)
+	var keys []string
+	for key := range files {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	wantKeys := []string{
+		clients.Path("alice", "reality", JSONSuffix), clients.Path("alice", "reality", LinkSuffix),
+		clients.Path("bob", "reality", JSONSuffix), clients.Path("bob", "reality", LinkSuffix),
+	}
+	if !changed || !slices.Equal(keys, wantKeys) {
+		t.Errorf("changed = %v, files = %v, want changed and %v", changed, keys, wantKeys)
 	}
 	if st.Xray["reality/alice"].ID == uuid.Nil {
 		t.Error("alice has no id")
@@ -168,6 +202,90 @@ func TestSessionPrepare(t *testing.T) {
 	_, changed, err = f.session.Prepare(st, "reality", []string{"alice", "bob"})
 	if err != nil || changed {
 		t.Errorf("second Prepare = changed %v, err %v, want unchanged", changed, err)
+	}
+}
+
+func TestSessionPrepareHysteriaPinHasNoLink(t *testing.T) {
+	pinned := `{"tag": "hy2pin", "protocol": "hysteria", "port": 8444,
+		"x-usher": {"trust": "pin", "pin_sha256": "` + strings.Repeat("ab", 32) + `"},
+		"settings": {"version": 2, "clients": []},
+		"streamSettings": {"network": "hysteria", "security": "tls",
+			"tlsSettings": {"serverName": "hy.example.com", "certificates": [{"certificate": ["c"], "key": ["k"]}]},
+			"hysteriaSettings": {"version": 2}}},`
+	f := newSessionFixture(t, func(c *driftConfig) { c.extra = pinned })
+
+	files, _, err := f.session.Prepare(newState(), "hy2pin", []string{"alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[clients.Path("alice", "hy2pin", JSONSuffix)] == nil {
+		t.Errorf("files = %v, want only alice/hy2pin.json", slices.Collect(maps.Keys(files)))
+	}
+}
+
+// TestSessionBrokenInboundStillRevokes covers the three ways Prepare keeps a reason instead of
+// failing: a validation error, a credential of the wrong kind and a file that cannot be rendered.
+func TestSessionBrokenInboundStillRevokes(t *testing.T) {
+	notPEM := `{"tag": "pinned", "protocol": "vless", "port": 9003,
+		"x-usher": {"trust": "pin"},
+		"settings": {"clients": [], "decryption": "none"},
+		"streamSettings": {"network": "ws", "security": "tls",
+			"tlsSettings": {"serverName": "p.example.com", "certificates": [{"certificate": ["x"], "key": ["y"]}]}}},`
+	tests := []struct {
+		name    string
+		extra   string
+		tag     string
+		setup   func(st *state.State)
+		wantErr string
+	}{
+		{"validation error", badInbound, "bad", func(*state.State) {}, "settings.clients"},
+		{"credential of the wrong kind", "", "ws", func(st *state.State) {
+			st.Xray["ws/alice"] = state.XrayEntry{Password: "wrong-kind"}
+		}, "does not fit"},
+		{"render error", notPEM, "pinned", func(*state.State) {}, "not a PEM certificate"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newSessionFixture(t, func(c *driftConfig) { c.extra = tt.extra })
+			st := newState()
+			tt.setup(st)
+			in := f.inbound(tt.tag)
+			f.service.seed(in, tt.tag+"/alice", idEntry())
+			f.service.seed(in, tt.tag+"/gone", idEntry())
+
+			files, _, err := f.session.Prepare(st, tt.tag, []string{"alice"})
+			if err != nil || files != nil {
+				t.Fatalf("Prepare = %v, %v, want no files and no error", files, err)
+			}
+			f.service.alters = 0
+			err = f.session.Apply(t.Context(), st, tt.tag, []string{"alice"})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Apply error = %v, want one with %q", err, tt.wantErr)
+			}
+			if got := f.service.credentials(t, in); len(got) != 1 || got[tt.tag+"/alice"] == "" {
+				t.Errorf("users = %v, want only alice", got)
+			}
+			if f.service.alters != 1 {
+				t.Errorf("AlterInbound calls = %d, want 1 removal", f.service.alters)
+			}
+			if !strings.Contains(f.logs.String(), "removed=["+tt.tag+"/gone]") {
+				t.Errorf("log lacks the removal:\n%s", f.logs)
+			}
+		})
+	}
+}
+
+func TestSessionPrepareKeepsChangedWhenRenderFails(t *testing.T) {
+	notPEM := `{"tag": "pinned", "protocol": "vless", "port": 9003,
+		"x-usher": {"trust": "pin"},
+		"settings": {"clients": [], "decryption": "none"},
+		"streamSettings": {"network": "ws", "security": "tls",
+			"tlsSettings": {"serverName": "p.example.com", "certificates": [{"certificate": ["x"], "key": ["y"]}]}}},`
+	f := newSessionFixture(t, func(c *driftConfig) { c.extra = notPEM })
+	st := newState()
+	_, changed, err := f.session.Prepare(st, "pinned", []string{"alice"})
+	if err != nil || !changed || st.Xray["pinned/alice"].ID == uuid.Nil {
+		t.Errorf("changed = %v, err = %v, entry = %v, want the enrolled entry reported", changed, err, st.Xray["pinned/alice"])
 	}
 }
 
@@ -195,7 +313,7 @@ func TestSessionApply(t *testing.T) {
 				}
 			},
 			alter: 2,
-			logs:  []string{"users changed", "added", "reality/alice"},
+			logs:  []string{"users changed", `added="[reality/alice reality/bob]"`, "removed=[]", "updated=[]"},
 		},
 		{
 			name:  "no change makes no call",
@@ -222,7 +340,7 @@ func TestSessionApply(t *testing.T) {
 			},
 			want:  func(*state.State) map[string]string { return map[string]string{"hy2/alice": "alice-pass"} },
 			alter: 2,
-			logs:  []string{"removed", "hy2/carol", "stranger"},
+			logs:  []string{`removed="[hy2/carol stranger]"`, "added=[]", "updated=[]"},
 		},
 		{
 			name:  "replaces a changed credential",
@@ -234,7 +352,7 @@ func TestSessionApply(t *testing.T) {
 			},
 			want:  func(*state.State) map[string]string { return map[string]string{"hy2/alice": "new-pass"} },
 			alter: 2,
-			logs:  []string{"updated", "hy2/alice"},
+			logs:  []string{"updated=[hy2/alice]", "added=[]", "removed=[]"},
 		},
 		{
 			name:  "no users empties the inbound",
@@ -245,6 +363,7 @@ func TestSessionApply(t *testing.T) {
 			},
 			want:  func(*state.State) map[string]string { return map[string]string{} },
 			alter: 1,
+			logs:  []string{"removed=[hy2/alice]"},
 		},
 	}
 	for _, tt := range tests {
@@ -304,6 +423,145 @@ func TestSessionApplyUnderDrift(t *testing.T) {
 	want := map[string]string{"reality/alice": st.Xray["reality/alice"].ID.String() + " xtls-rprx-vision"}
 	if got := f.service.credentials(t, in); !maps.Equal(got, want) {
 		t.Errorf("users = %v, want %v", got, want)
+	}
+}
+
+// openWithConfig opens a session on the service for the file the config writes.
+func openWithConfig(t *testing.T, service *userService, cfg driftConfig) *Session {
+	t.Helper()
+	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t),
+		"198.51.100.7", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestSessionApplyUnusableDriftChangesNothing(t *testing.T) {
+	tests := []struct {
+		name    string
+		change  func(c *driftConfig)
+		running func(running []*core.InboundHandlerConfig) []*core.InboundHandlerConfig
+		want    string
+	}{
+		{"protocol change", func(c *driftConfig) { c.realityProto = "trojan" }, nil, "proxy type"},
+		{"tag missing at runtime", nil, func(running []*core.InboundHandlerConfig) []*core.InboundHandlerConfig {
+			return slices.DeleteFunc(running, func(r *core.InboundHandlerConfig) bool { return r.Tag == "reality" })
+		}, "not running"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newSessionFixture(t, nil)
+			cfg := f.cfg
+			if tt.change != nil {
+				tt.change(&cfg)
+			}
+			if tt.running != nil {
+				f.service.running = tt.running(f.service.running)
+			}
+			session := openWithConfig(t, f.service, cfg)
+			f.service.seed(f.inbound("reality"), "reality/gone", idEntry())
+			st := newState()
+			st.Xray["reality/alice"] = idEntry()
+			f.service.alters = 0
+
+			err := session.Apply(t.Context(), st, "reality", []string{"alice"})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Apply error = %v, want one with %q", err, tt.want)
+			}
+			if f.service.alters != 0 {
+				t.Errorf("AlterInbound calls = %d, want 0: an account of the wrong type crashes Xray", f.service.alters)
+			}
+		})
+	}
+}
+
+func TestSessionApplyReportsReconcileAndDriftErrors(t *testing.T) {
+	f := newSessionFixture(t, nil)
+	f.cfg.realityPort = 8444
+	session := openWithConfig(t, f.service, f.cfg)
+	f.service.listErr = errors.New("api down")
+
+	err := session.Apply(t.Context(), newState(), "reality", []string{"alice"})
+	if err == nil || !strings.Contains(err.Error(), "api down") || !strings.Contains(err.Error(), "port") {
+		t.Errorf("Apply error = %v, want the list error and the drift reason", err)
+	}
+}
+
+func TestSessionApplyFailures(t *testing.T) {
+	t.Run("removal fails, the add is skipped", func(t *testing.T) {
+		f := newSessionFixture(t, nil)
+		st := newState()
+		st.Xray["hy2/alice"] = state.XrayEntry{Password: "new-pass"}
+		f.service.seed(f.inbound("hy2"), "hy2/alice", state.XrayEntry{Password: "old-pass"})
+		f.service.failRemove["hy2/alice"] = true
+
+		err := f.session.Apply(t.Context(), st, "hy2", []string{"alice"})
+		if err == nil || !strings.Contains(err.Error(), "removing hy2/alice") {
+			t.Fatalf("Apply error = %v, want the removal error", err)
+		}
+		if got := f.service.credentials(t, f.inbound("hy2")); got["hy2/alice"] != "old-pass" {
+			t.Errorf("users = %v, want the old account untouched", got)
+		}
+		if f.service.alters != 1 {
+			t.Errorf("AlterInbound calls = %d, want only the failed removal", f.service.alters)
+		}
+	})
+	t.Run("listing fails", func(t *testing.T) {
+		f := newSessionFixture(t, nil)
+		f.service.listErr = errors.New("api down")
+		err := f.session.Apply(t.Context(), newState(), "hy2", []string{"alice"})
+		if err == nil || !strings.Contains(err.Error(), "listing users") {
+			t.Fatalf("Apply error = %v, want the listing error", err)
+		}
+		if f.service.alters != 0 {
+			t.Errorf("AlterInbound calls = %d, want 0", f.service.alters)
+		}
+	})
+	t.Run("changed credential, the new add fails", func(t *testing.T) {
+		f := newSessionFixture(t, nil)
+		st := newState()
+		st.Xray["hy2/alice"] = state.XrayEntry{Password: "new-pass"}
+		f.service.seed(f.inbound("hy2"), "hy2/alice", state.XrayEntry{Password: "old-pass"})
+		f.service.failAdd["hy2/alice"] = true
+
+		err := f.session.Apply(t.Context(), st, "hy2", []string{"alice"})
+		if err == nil || !strings.Contains(err.Error(), "adding hy2/alice") {
+			t.Fatalf("Apply error = %v, want the add error", err)
+		}
+		if got := f.service.credentials(t, f.inbound("hy2")); len(got) != 0 {
+			t.Errorf("users = %v, want none: the old account is gone", got)
+		}
+		if !strings.Contains(f.logs.String(), "removed=[hy2/alice]") || !strings.Contains(f.logs.String(), "updated=[]") {
+			t.Errorf("log should report the user as removed, not updated:\n%s", f.logs)
+		}
+	})
+}
+
+func TestOpenClosesConnectionWhenDriftCheckFails(t *testing.T) {
+	cfg := newDriftConfig(t.TempDir())
+	service := newUserService(nil)
+	service.inboundErr = errors.New("api down")
+	closed := false
+	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() { closed = true }, nil }
+	_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t), "198.51.100.7",
+		slog.New(slog.DiscardHandler))
+	if err == nil || !strings.Contains(err.Error(), "api down") {
+		t.Errorf("Open error = %v, want the list error", err)
+	}
+	if !closed {
+		t.Error("Open did not close the connection")
+	}
+}
+
+func TestOpenDialFails(t *testing.T) {
+	cfg := newDriftConfig(t.TempDir())
+	dial := func() (command.HandlerServiceClient, func(), error) { return nil, nil, errors.New("no socket") }
+	_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t), "198.51.100.7",
+		slog.New(slog.DiscardHandler))
+	if err == nil || !strings.Contains(err.Error(), "connecting to xray") {
+		t.Errorf("Open error = %v, want the connect error", err)
 	}
 }
 
@@ -382,27 +640,6 @@ func TestProtocolCredential(t *testing.T) {
 			}
 		})
 	}
-}
-
-// runningValid builds the valid inbounds of the file the way Xray does at start.
-func runningValid(t *testing.T, path string) []*core.InboundHandlerConfig {
-	t.Helper()
-	inbounds, err := ReadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var running []*core.InboundHandlerConfig
-	for _, in := range inbounds {
-		if in.Err != nil {
-			continue
-		}
-		built, err := in.Detour.Build()
-		if err != nil {
-			t.Fatal(err)
-		}
-		running = append(running, built)
-	}
-	return running
 }
 
 func TestOpenStaleSocketReportsDown(t *testing.T) {

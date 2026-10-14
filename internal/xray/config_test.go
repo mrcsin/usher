@@ -51,15 +51,6 @@ func TestReadConfigShapes(t *testing.T) {
 				got.ServerName != w.ServerName || got.Hints != w.Hints {
 				t.Errorf("got %+v, want %+v", summary(got), summary(w))
 			}
-			if got.Detour.Tag != w.Tag || got.Detour.Protocol != w.Protocol {
-				t.Errorf("detour = %s/%s, want %s/%s", got.Detour.Tag, got.Detour.Protocol, w.Tag, w.Protocol)
-			}
-			if w.Tag == "xh" {
-				return // Build reads the certificate files, which do not exist here
-			}
-			if _, err := got.Detour.Build(); err != nil {
-				t.Errorf("Detour.Build: %v", err)
-			}
 		})
 	}
 }
@@ -136,7 +127,8 @@ func baseInbound(t *testing.T, kind string) map[string]any {
 		"vless-tls": `{"tag":"t","protocol":"vless","port":443,"settings":{"clients":[],"decryption":"none"},
 			"streamSettings":{"network":"ws","security":"tls","tlsSettings":{"serverName":"a.example.com"}}}`,
 		"reality": `{"tag":"t","protocol":"vless","port":443,"settings":{"clients":[],"decryption":"none"},
-			"streamSettings":{"network":"raw","security":"reality","realitySettings":{"serverNames":["a.example.com"]}}}`,
+			"streamSettings":{"network":"raw","security":"reality","realitySettings":{"serverNames":["a.example.com","b.example.com"],
+				"privateKey":"` + testKey(1) + `","shortIds":["ab12"]}}}`,
 		"xhttp": `{"tag":"t","protocol":"vless","port":443,"settings":{"clients":[],"decryption":"none"},
 			"streamSettings":{"network":"xhttp","security":"tls","tlsSettings":{"serverName":"a.example.com"},
 			"xhttpSettings":{"path":"/x"}}}`,
@@ -220,6 +212,18 @@ func TestReadConfigRejects(t *testing.T) {
 		{"reality wildcard only", "reality", map[string]any{
 			"streamSettings.realitySettings.serverNames": []any{"*.example.com", ""}},
 			"realitySettings.serverNames"},
+		{"reality sni outside serverNames", "reality", map[string]any{"x-usher.sni": "other.example.com"}, "x-usher.sni"},
+		{"reality sni wildcard", "reality", map[string]any{
+			"streamSettings.realitySettings.serverNames": []any{"*.example.com"},
+			"x-usher.sni": "front.example.com"}, "x-usher.sni"},
+		{"reality privateKey missing", "reality", map[string]any{"streamSettings.realitySettings.privateKey": nil},
+			"realitySettings.privateKey"},
+		{"reality privateKey std base64", "reality", map[string]any{
+			"streamSettings.realitySettings.privateKey": "SECRETSECRET+/=="}, "realitySettings.privateKey"},
+		{"reality mldsa65Seed format", "reality", map[string]any{
+			"streamSettings.realitySettings.mldsa65Seed": "SECRETSEED"}, "realitySettings.mldsa65Seed"},
+		{"reality seed equals privateKey", "reality", map[string]any{
+			"streamSettings.realitySettings.mldsa65Seed": testKey(1)}, "realitySettings.mldsa65Seed"},
 		{"reality fingerprint", "reality", map[string]any{"x-usher.fingerprint": "ios"}, "x-usher.fingerprint"},
 		{"unknown x-usher key", "vless-tls", map[string]any{"x-usher.adress": "x"}, "x-usher"},
 		{"x-usher port", "vless-tls", map[string]any{"x-usher.port": 70000}, "x-usher.port"},
@@ -298,9 +302,18 @@ func TestReadConfigAcceptsEdgeShapes(t *testing.T) {
 			if in.Network != "raw" || in.Security != "none" || in.ServerName != "" {
 				t.Errorf("got %s/%s/%q", in.Network, in.Security, in.ServerName)
 			}
+			if _, ok := in.Raw["streamSettings"]; ok {
+				t.Error("streamSettings was added to the inbound")
+			}
 		}},
-		{"sni override beats wildcard names", "reality", map[string]any{
-			"streamSettings.realitySettings.serverNames": []any{"*.example.com"},
+		{"sni override picks one of the serverNames", "reality", map[string]any{
+			"x-usher.sni": "b.example.com"}, func(t *testing.T, in Inbound) {
+			if in.ServerName != "b.example.com" {
+				t.Errorf("ServerName = %q", in.ServerName)
+			}
+		}},
+		{"sni override beside wildcard entries", "reality", map[string]any{
+			"streamSettings.realitySettings.serverNames": []any{"*.example.com", "front.example.com"},
 			"x-usher.sni": "front.example.com"}, func(t *testing.T, in Inbound) {
 			if in.ServerName != "front.example.com" {
 				t.Errorf("ServerName = %q", in.ServerName)
@@ -364,6 +377,27 @@ func TestReadConfigErrorsDoNotQuoteValues(t *testing.T) {
 		if strings.Contains(in.Err.Error(), secret) {
 			t.Errorf("%s: error quotes the value: %v", path, in.Err)
 		}
+	}
+}
+
+func TestReadConfigRealityErrorsDoNotQuoteKeys(t *testing.T) {
+	const secret = "SECRETSECRET+/=="
+	for _, field := range []string{"privateKey", "mldsa65Seed"} {
+		m := baseInbound(t, "reality")
+		setPath(m, "streamSettings.realitySettings."+field, secret)
+		in := readOne(t, m)
+		if in.Err == nil {
+			t.Fatalf("%s: no error", field)
+		}
+		if strings.Contains(in.Err.Error(), secret) {
+			t.Errorf("%s: error quotes the value: %v", field, in.Err)
+		}
+	}
+	m := baseInbound(t, "reality")
+	setPath(m, "streamSettings.realitySettings.mldsa65Seed", testKey(1))
+	in := readOne(t, m)
+	if in.Err == nil || strings.Contains(in.Err.Error(), testKey(1)) {
+		t.Errorf("seed equal to privateKey: err = %v, want one without the key", in.Err)
 	}
 }
 
