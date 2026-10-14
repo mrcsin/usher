@@ -63,9 +63,52 @@ func TestEnvironmentFrom(t *testing.T) {
 			wantErr: "USHER_AWG_SOCKET",
 		},
 		{
-			name:    "missing awg socket does not ask for DNS",
+			name:    "no backend socket does not ask for DNS",
 			env:     map[string]string{"USHER_HOST": "203.0.113.10"},
-			wantErr: "USHER_AWG_SOCKET is required",
+			wantErr: "USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required",
+		},
+		{
+			name: "xray only needs no DNS",
+			env:  map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "/run/xray/api.sock", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
+			want: environment{
+				Host:       netip.MustParseAddr("203.0.113.10"),
+				XraySocket: "/run/xray/api.sock",
+				XrayConfig: "/etc/xray/config.json",
+			},
+		},
+		{
+			name: "both backends",
+			env: map[string]string{
+				"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1",
+				"USHER_XRAY_SOCKET": "/run/xray/api.sock", "USHER_XRAY_CONFIG": "/etc/xray/config.json",
+			},
+			want: environment{
+				Host:       netip.MustParseAddr("203.0.113.10"),
+				DNS:        []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+				AWGSocket:  "/run/awg.sock",
+				XraySocket: "/run/xray/api.sock",
+				XrayConfig: "/etc/xray/config.json",
+			},
+		},
+		{
+			name:    "xray socket without config",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "/run/xray/api.sock"},
+			wantErr: "USHER_XRAY_CONFIG",
+		},
+		{
+			name:    "relative xray socket",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "api.sock", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
+			wantErr: "USHER_XRAY_SOCKET",
+		},
+		{
+			name:    "relative xray config",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_SOCKET": "/run/xray/api.sock", "USHER_XRAY_CONFIG": "config.json"},
+			wantErr: "USHER_XRAY_CONFIG",
+		},
+		{
+			name:    "xray config without socket",
+			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
+			wantErr: "USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required",
 		},
 		{
 			name:    "empty DNS",
@@ -100,9 +143,9 @@ func TestEnvironmentFrom(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) || got.AWGSocket != tt.want.AWGSocket {
-				t.Errorf("host/dns/socket = %v %v %q, want %v %v %q",
-					got.Host, got.DNS, got.AWGSocket, tt.want.Host, tt.want.DNS, tt.want.AWGSocket)
+			if got.Host != tt.want.Host || !slices.Equal(got.DNS, tt.want.DNS) || got.AWGSocket != tt.want.AWGSocket ||
+				got.XraySocket != tt.want.XraySocket || got.XrayConfig != tt.want.XrayConfig {
+				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
 		})
 	}

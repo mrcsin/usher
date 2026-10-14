@@ -451,13 +451,13 @@ reported by awg-grpc" and nothing reaches Xray.
 - Modify: `cmd/usher/env.go`, `cmd/usher/main.go`, tests
 - Modify: `deploy/compose.example.yml`; Create: `deploy/xray/config.json`
 
-- [ ] read `USHER_XRAY_SOCKET` and `USHER_XRAY_CONFIG`; build the Xray backend
-- [ ] example config: one VLESS+Reality and one Hysteria2 inbound with a `certificateFile` and
+- [x] read `USHER_XRAY_SOCKET` and `USHER_XRAY_CONFIG`; build the Xray backend
+- [x] example config: one VLESS+Reality and one Hysteria2 inbound with a `certificateFile` and
       `x-usher`, placeholders that Xray refuses to start with; compose mounts the config directory
       into both containers (usher read-only), a socket directory usher owns, Xray with
       `restart: unless-stopped` and image `26.10.10` with a comment that it follows `go.mod`
-- [ ] write env and wiring tests
-- [ ] run `go test -race ./...` - must pass before Task 10
+- [x] write env and wiring tests
+- [x] run `go test -race ./...` - must pass before Task 10
 
 ### Task 10: Xray end-to-end suite
 

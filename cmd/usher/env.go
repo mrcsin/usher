@@ -21,7 +21,10 @@ type environment struct {
 	pass.Settings
 	Host      netip.Addr   // USHER_HOST
 	DNS       []netip.Addr // USHER_DNS
-	AWGSocket string       // USHER_AWG_SOCKET
+	AWGSocket string       // USHER_AWG_SOCKET, empty without the awg backend
+
+	XraySocket string // USHER_XRAY_SOCKET, empty without the Xray backend
+	XrayConfig string // USHER_XRAY_CONFIG, set with XraySocket
 }
 
 func environmentFrom(getenv func(string) string) (environment, error) {
@@ -30,7 +33,7 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 		return environment{}, err
 	}
 
-	var awgSocket string
+	var awgSocket, xraySocket, xrayConfig string
 	var dns []netip.Addr
 	if getenv("USHER_AWG_SOCKET") != "" {
 		if awgSocket, err = parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET")); err != nil {
@@ -40,8 +43,16 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 			return environment{}, err
 		}
 	}
-	if awgSocket == "" {
-		return environment{}, errors.New("USHER_AWG_SOCKET is required")
+	if getenv("USHER_XRAY_SOCKET") != "" {
+		if xraySocket, err = parseSocketPath("USHER_XRAY_SOCKET", getenv("USHER_XRAY_SOCKET")); err != nil {
+			return environment{}, err
+		}
+		if xrayConfig, err = parseSocketPath("USHER_XRAY_CONFIG", getenv("USHER_XRAY_CONFIG")); err != nil {
+			return environment{}, err
+		}
+	}
+	if awgSocket == "" && xraySocket == "" {
+		return environment{}, errors.New("USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required")
 	}
 
 	return environment{
@@ -49,6 +60,9 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 		Host:      host,
 		DNS:       dns,
 		AWGSocket: awgSocket,
+
+		XraySocket: xraySocket,
+		XrayConfig: xrayConfig,
 	}, nil
 }
 
@@ -76,6 +90,7 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 	return addr, nil
 }
 
+// parseSocketPath checks that value is an absolute path; it serves the socket and config paths.
 func parseSocketPath(name, value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)

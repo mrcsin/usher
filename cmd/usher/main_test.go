@@ -6,11 +6,13 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mrcsin/usher/internal/pass"
+	"github.com/mrcsin/usher/internal/xray"
 )
 
 func TestRun(t *testing.T) {
@@ -54,6 +56,29 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestBackends(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	env := environment{
+		AWGSocket:  "/run/awg.sock",
+		XraySocket: "/run/xray/api.sock",
+		XrayConfig: filepath.Join(t.TempDir(), "missing.json"),
+	}
+
+	awg := awgBackend(env, log)
+	if awg.Name != "awg-grpc" || !slices.Equal(awg.Suffixes, []string{".conf"}) {
+		t.Errorf("awg backend = %q %v", awg.Name, awg.Suffixes)
+	}
+
+	xr := xrayBackend(env, log)
+	if xr.Name != "xray" || !slices.Equal(xr.Suffixes, []string{".json", ".txt"}) {
+		t.Errorf("xray backend = %q %v", xr.Name, xr.Suffixes)
+	}
+	session, err := xr.Open(context.Background())
+	if err == nil || session != nil {
+		t.Errorf("Open = %v, %v, want a nil session and an error for the missing config", session, err)
+	}
+}
+
 func TestServe(t *testing.T) {
 	root := t.TempDir()
 	settings := pass.Settings{
@@ -87,5 +112,19 @@ func TestServe(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
 		}
+	}
+}
+
+func TestDeployExampleConfig(t *testing.T) {
+	inbounds, err := xray.ReadConfig(filepath.Join("..", "..", "deploy", "xray", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, in := range inbounds {
+		tags = append(tags, in.Tag)
+	}
+	if want := []string{"vless-reality", "hysteria2"}; !slices.Equal(tags, want) {
+		t.Errorf("tags = %v, want %v", tags, want)
 	}
 }
