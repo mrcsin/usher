@@ -1,0 +1,1 @@
+hysteria2://user-password@198.51.100.7:20000-30000?alpn=h3&fp=chrome&obfs=salamander&obfs-password=obfs&sni=hy.example.com#hy2-hop

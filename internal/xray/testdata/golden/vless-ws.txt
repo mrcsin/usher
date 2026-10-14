@@ -1,0 +1,1 @@
+vless://3f2504e0-4f89-41d3-9a0c-0305e82c3301@198.51.100.7:2083?encryption=none&fp=chrome&path=%2Fws&security=tls&sni=ws.example.com&type=ws#vless-ws

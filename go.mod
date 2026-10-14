@@ -6,6 +6,7 @@ require (
 	github.com/cloudflare/circl v1.6.5
 	github.com/google/uuid v1.6.0
 	github.com/mrcsin/awg-grpc v0.1.0
+	github.com/xtls/libxray v1.261010.0
 	github.com/xtls/xray-core v1.260327.1-0.20261010092107-701af60772cd
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
@@ -23,9 +24,12 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/koron/go-ssdp v0.9.1 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/libp2p/go-nat v1.0.1-0.20250821073202-01afc089f138 // indirect
 	github.com/libp2p/go-netroute v0.4.0 // indirect
+	github.com/metacubex/age v0.0.0-20260603010618-28d156b4ea78 // indirect
+	github.com/metacubex/hkdf v0.1.0 // indirect
+	github.com/metacubex/hpke v0.1.0 // indirect
+	github.com/metacubex/mlkem v0.1.0 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/pion/dtls/v3 v3.1.10 // indirect
 	github.com/pion/logging v0.2.4 // indirect

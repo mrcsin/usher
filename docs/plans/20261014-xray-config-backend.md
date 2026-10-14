@@ -437,13 +437,13 @@ reported by awg-grpc" and nothing reaches Xray.
 - Create: `internal/xray/render.go`, `internal/xray/render_test.go`
 - Create: `internal/xray/testdata/golden/`
 
-- [ ] `.json`: complete client config with the mirrored outbound and a local proxy inbound; the
+- [x] `.json`: complete client config with the mirrored outbound and a local proxy inbound; the
       outbound passes `conf.OutboundDetourConfig.Build()` or the inbound fails
-- [ ] `.txt`: libxray per outbound; on error no `.txt` and a logged defect; none for a Hysteria2
+- [x] `.txt`: libxray per outbound; on error no `.txt` and a logged defect; none for a Hysteria2
       pin inbound
-- [ ] prepare step writes both files through the seam
-- [ ] golden tests for the shapes in Acceptance Evidence item 2
-- [ ] run `go test -race ./...` - must pass before Task 9
+- [x] prepare step writes both files through the seam
+- [x] golden tests for the shapes in Acceptance Evidence item 2
+- [x] run `go test -race ./...` - must pass before Task 9
 
 ### Task 9: Wire the backend and the deploy example
 

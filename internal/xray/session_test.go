@@ -116,7 +116,7 @@ func newSessionFixture(t *testing.T, change func(c *driftConfig)) sessionFixture
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
 	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
-	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, log)
+	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, "198.51.100.7", log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestSessionApplyUnderDrift(t *testing.T) {
 	f.cfg.realityPort = 8444
 	path := f.cfg.write(t)
 	dial := func() (command.HandlerServiceClient, func(), error) { return f.service, func() {}, nil }
-	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, slog.New(slog.DiscardHandler))
+	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, "198.51.100.7", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestOpenStaleSocketReportsDown(t *testing.T) {
 		dialed = true
 		return nil, func() {}, nil
 	}
-	if _, err := Open(t.Context(), dial, socket, path, slog.New(slog.DiscardHandler)); err == nil {
+	if _, err := Open(t.Context(), dial, socket, path, "198.51.100.7", slog.New(slog.DiscardHandler)); err == nil {
 		t.Fatal("want an error for a stale socket")
 	}
 	if dialed {

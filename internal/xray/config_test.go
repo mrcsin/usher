@@ -235,6 +235,7 @@ func TestReadConfigRejects(t *testing.T) {
 			"x-usher.pin_sha256"},
 		{"hop on vless", "vless-tls", map[string]any{"x-usher.hop_ports": "20000-30000"}, "x-usher.hop_ports"},
 		{"hop format", "hysteria", map[string]any{"x-usher.hop_ports": "30000-20000"}, "x-usher.hop_ports"},
+		{"hop equal range", "hysteria", map[string]any{"x-usher.hop_ports": "20000-20000"}, "x-usher.hop_ports"},
 		{"hop single port", "hysteria", map[string]any{"x-usher.hop_ports": "20000"}, "x-usher.hop_ports"},
 		{"xhttp downloadSettings", "xhttp", map[string]any{
 			"streamSettings.xhttpSettings.downloadSettings": map[string]any{}},

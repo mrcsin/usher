@@ -32,13 +32,15 @@ type Session struct {
 	inbounds  []Inbound
 	byTag     map[string]Inbound
 	drift     map[string]error
+	host      string
 	log       *slog.Logger
 }
 
 // Open reads the Xray config at configPath, connects to the API and checks every inbound of the
-// file against the running Xray. When socketPath is a stale socket of a killed Xray, Open removes
-// it and fails, so the pass reports Xray down and the restart policy can start Xray again.
-func Open(ctx context.Context, dial Dial, socketPath, configPath string, log *slog.Logger) (*Session, error) {
+// file against the running Xray. host is the address clients dial unless an inbound sets one. When
+// socketPath is a stale socket of a killed Xray, Open removes it and fails, so the pass reports Xray
+// down and the restart policy can start Xray again.
+func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, log *slog.Logger) (*Session, error) {
 	inbounds, err := ReadConfig(configPath)
 	if err != nil {
 		return nil, err
@@ -72,6 +74,7 @@ func Open(ctx context.Context, dial Dial, socketPath, configPath string, log *sl
 		inbounds:  inbounds,
 		byTag:     byTag,
 		drift:     drift,
+		host:      host,
 		log:       log,
 	}, nil
 }
@@ -86,7 +89,7 @@ func (s *Session) Interfaces() []string {
 	return tags
 }
 
-// Prepare enrolls the users on the inbound in st. It fails an inbound that did not validate.
+// Prepare enrolls the users on the inbound in st and renders their client files. It fails an inbound that did not validate.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
 	in := s.byTag[name]
 	if in.Err != nil {
@@ -96,7 +99,15 @@ func (s *Session) Prepare(st *state.State, name string, users []string) (map[str
 	if err != nil {
 		return nil, false, err
 	}
-	return map[string][]byte{}, changed, nil
+	files := make(map[string][]byte, 2*len(users))
+	for _, user := range users {
+		userFiles, err := renderFiles(s.log, in, s.host, user, st.Xray[state.EntryName(name, user)])
+		if err != nil {
+			return nil, false, fmt.Errorf("user %s: %w", user, err)
+		}
+		maps.Copy(files, userFiles)
+	}
+	return files, changed, nil
 }
 
 // Apply makes the inbound hold exactly the users, then returns the drift error of the tag, if

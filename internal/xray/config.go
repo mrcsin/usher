@@ -480,7 +480,7 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 			return "x-usher.hop_ports", "valid on hysteria only"
 		}
 		if !validHopPorts(hint.HopPorts) {
-			return "x-usher.hop_ports", `want "from-to" with 1 <= from <= to <= 65535`
+			return "x-usher.hop_ports", `want "from-to" with 1 <= from < to <= 65535`
 		}
 	}
 
@@ -554,7 +554,7 @@ func validHopPorts(s string) bool {
 	}
 	from, _ := strconv.Atoi(m[1])
 	to, _ := strconv.Atoi(m[2])
-	return from >= 1 && from <= to && to <= 65535
+	return from >= 1 && from < to && to <= 65535
 }
 
 // object returns v as a JSON object, or nil when it is not one. A read from nil is safe.
