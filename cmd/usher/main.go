@@ -63,7 +63,7 @@ func serve(ctx context.Context, settings pass.Settings, backends []pass.Backend,
 }
 
 func awgBackend(env environment, log *slog.Logger) pass.Backend {
-	dial := dialAWGSocket(env.AWGSocket)
+	dial := dialUnix(env.AWGSocket, awgv1.NewManagementServiceClient)
 	return pass.Backend{
 		Name:     "awg-grpc",
 		Suffixes: []string{awg.Suffix},
@@ -74,7 +74,7 @@ func awgBackend(env environment, log *slog.Logger) pass.Backend {
 }
 
 func xrayBackend(env environment, log *slog.Logger) pass.Backend {
-	dial := dialXraySocket(env.XraySocket)
+	dial := dialUnix(env.XraySocket, command.NewHandlerServiceClient)
 	return pass.Backend{
 		Name:     "xray",
 		Suffixes: []string{xray.JSONSuffix, xray.LinkSuffix},
@@ -93,24 +93,15 @@ func asSession[S pass.Session](session S, err error) (pass.Session, error) {
 	return session, nil
 }
 
-func dialAWGSocket(path string) awg.Dial {
+// dialUnix returns a dial function that opens a gRPC client over the unix socket at path.
+func dialUnix[C any](path string, newClient func(grpc.ClientConnInterface) C) func() (C, func(), error) {
 	target := "unix://" + path
-	return func() (awgv1.ManagementServiceClient, func(), error) {
+	return func() (C, func(), error) {
 		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			return nil, nil, fmt.Errorf("opening %s: %w", target, err)
+			var zero C
+			return zero, nil, fmt.Errorf("opening %s: %w", target, err)
 		}
-		return awgv1.NewManagementServiceClient(conn), func() { _ = conn.Close() }, nil
-	}
-}
-
-func dialXraySocket(path string) xray.Dial {
-	target := "unix://" + path
-	return func() (command.HandlerServiceClient, func(), error) {
-		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			return nil, nil, fmt.Errorf("opening %s: %w", target, err)
-		}
-		return command.NewHandlerServiceClient(conn), func() { _ = conn.Close() }, nil
+		return newClient(conn), func() { _ = conn.Close() }, nil
 	}
 }
