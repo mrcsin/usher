@@ -1,5 +1,4 @@
-// Package clients renders AmneziaWG client configs and mirrors them into the clients directory.
-package clients
+package awg
 
 import (
 	"encoding/base64"
@@ -13,9 +12,9 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// Render returns the client config of one user on one interface. The error never quotes a
+// render returns the client config of one user on one interface. The error never quotes a
 // client_params value.
-func Render(entry state.Entry, iface *awgv1.InterfaceStatus, host netip.Addr, dns []netip.Addr) ([]byte, error) {
+func render(entry state.Entry, iface *awgv1.InterfaceStatus, host netip.Addr, dns []netip.Addr) ([]byte, error) {
 	port := iface.GetListenPort()
 	if port > math.MaxUint16 {
 		return nil, fmt.Errorf("listen port %d is not a port number", port)

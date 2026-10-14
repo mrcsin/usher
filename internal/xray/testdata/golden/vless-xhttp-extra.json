@@ -1,0 +1,50 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      },
+      "tag": "socks-in"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10809,
+      "protocol": "http",
+      "tag": "http-in"
+    }
+  ],
+  "log": {
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "address": "198.51.100.7",
+        "encryption": "none",
+        "flow": "",
+        "id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        "port": 2054
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "serverName": "xh.example.com"
+        },
+        "xhttpSettings": {
+          "extra": {
+            "xPaddingBytes": "100-200"
+          },
+          "mode": "auto",
+          "path": "/xh"
+        }
+      },
+      "tag": "vless-xhttp-extra"
+    }
+  ]
+}

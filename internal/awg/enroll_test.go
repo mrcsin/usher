@@ -1,4 +1,4 @@
-package pass
+package awg
 
 import (
 	"bytes"

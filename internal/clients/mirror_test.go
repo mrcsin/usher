@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -149,23 +150,48 @@ func TestMirrorKeepsMtimeOfUnchangedFile(t *testing.T) {
 }
 
 func TestExisting(t *testing.T) {
+	only := func(names ...string) func(string) bool {
+		return func(name string) bool { return slices.Contains(names, name) }
+	}
+	all := func(string) bool { return true }
+	none := func(string) bool { return false }
 	tests := []struct {
 		name     string
 		existing map[string]string
-		ifaces   map[string]bool
+		suffixes []string
+		keep     func(string) bool
 		want     map[string][]byte
 	}{
 		{
-			name: "returns only the configs of the named interfaces",
+			name: "returns only the files of the kept interfaces",
 			existing: map[string]string{
 				"phone/awg0.conf": "a", "phone/awg1.conf": "b", "laptop/awg1.conf": "c", "phone/notes.txt": "d",
 			},
-			ifaces: map[string]bool{"awg1": true},
-			want:   map[string][]byte{"phone/awg1.conf": []byte("b"), "laptop/awg1.conf": []byte("c")},
+			suffixes: []string{".conf"},
+			keep:     only("awg1"),
+			want:     map[string][]byte{"phone/awg1.conf": []byte("b"), "laptop/awg1.conf": []byte("c")},
 		},
 		{
-			name:     "no interfaces reads nothing",
+			name:     "keeping all returns every file of the suffix",
+			existing: map[string]string{"phone/awg0.conf": "a", "phone/vless.txt": "b", "laptop/vless.txt": "c"},
+			suffixes: []string{".txt"},
+			keep:     all,
+			want:     map[string][]byte{"phone/vless.txt": []byte("b"), "laptop/vless.txt": []byte("c")},
+		},
+		{
+			name: "several suffixes keep the files of each",
+			existing: map[string]string{
+				"phone/hy2.json": "a", "phone/hy2.txt": "b", "phone/hy2.conf": "c", "phone/vless.txt": "d",
+			},
+			suffixes: []string{".json", ".txt"},
+			keep:     only("hy2"),
+			want:     map[string][]byte{"phone/hy2.json": []byte("a"), "phone/hy2.txt": []byte("b")},
+		},
+		{
+			name:     "keeping none reads nothing",
 			existing: map[string]string{"phone/awg0.conf": "a"},
+			suffixes: []string{".conf"},
+			keep:     none,
 			want:     map[string][]byte{},
 		},
 	}
@@ -175,7 +201,7 @@ func TestExisting(t *testing.T) {
 			for rel, content := range tt.existing {
 				writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), content, 0o600)
 			}
-			got, err := Existing(dir, tt.ifaces)
+			got, err := Existing(dir, tt.suffixes, tt.keep)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,14 +211,20 @@ func TestExisting(t *testing.T) {
 		})
 	}
 	t.Run("missing directory is an error", func(t *testing.T) {
-		if _, err := Existing(filepath.Join(t.TempDir(), "gone"), map[string]bool{"awg0": true}); err == nil {
+		if _, err := Existing(filepath.Join(t.TempDir(), "gone"), []string{".conf"}, all); err == nil {
 			t.Fatal("want an error")
 		}
 	})
 }
 
 func TestPath(t *testing.T) {
-	if got := Path("phone", "awg0"); got != "phone/awg0.conf" {
-		t.Errorf("Path = %q, want phone/awg0.conf", got)
+	tests := []struct{ suffix, want string }{
+		{".conf", "phone/awg0.conf"},
+		{".txt", "phone/awg0.txt"},
+	}
+	for _, tt := range tests {
+		if got := Path("phone", "awg0", tt.suffix); got != tt.want {
+			t.Errorf("Path(%q) = %q, want %q", tt.suffix, got, tt.want)
+		}
 	}
 }

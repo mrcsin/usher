@@ -1,0 +1,58 @@
+{
+  // Placeholders below make Xray refuse to start until the operator replaces them.
+  "log": { "loglevel": "warning" },
+  "api": {
+    "tag": "api",
+    "listen": "/run/xray/api.sock,0660",
+    "services": ["HandlerService"]
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": { "clients": [], "decryption": "none" },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          // Generate with `xray x25519`.
+          "privateKey": "REPLACE_WITH_X25519_PRIVATE_KEY",
+          "target": "example.com:443",
+          "serverNames": ["example.com"],
+          "shortIds": ["REPLACE_WITH_HEX_SHORT_ID"]
+        }
+      },
+      "x-usher": { "address": "203.0.113.10" }
+    },
+    {
+      "tag": "hysteria2",
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "hysteria",
+      "settings": { "version": 2, "clients": [] },
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "vpn.example.com",
+          "alpn": ["h3"],
+          // A certificate that a public CA issued for the domain above.
+          "certificates": [
+            {
+              "certificateFile": "/etc/xray-certs/REPLACE_WITH_FULLCHAIN.pem",
+              "keyFile": "/etc/xray-certs/REPLACE_WITH_PRIVKEY.pem"
+            }
+          ]
+        },
+        "hysteriaSettings": { "version": 2 },
+        "finalmask": {
+          "udp": [{ "type": "salamander", "settings": { "password": "REPLACE_WITH_OBFS_PASSWORD" } }]
+        }
+      },
+      "x-usher": { "address": "203.0.113.10", "sni": "vpn.example.com" }
+    }
+  ],
+  "outbounds": [{ "protocol": "freedom", "tag": "direct" }]
+}

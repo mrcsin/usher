@@ -11,8 +11,13 @@ import (
 
 var (
 	userNamePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-	interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_=+.-]{0,14}$`)
+	interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_=+.-]{0,31}$`)
 )
+
+// ValidInterfaceName reports whether name is acceptable as an interface name in usher.yml.
+func ValidInterfaceName(name string) bool {
+	return interfaceNamePattern.MatchString(name)
+}
 
 // Load reads path and returns the interface names of every user. A user with an empty list is
 // valid, but a file without any user/interface pair is not. Every error names the file, and the

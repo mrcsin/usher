@@ -1,0 +1,28 @@
+{
+  "inbounds": [
+    {
+      "tag": "a1", "protocol": "VLESS", "port": 2053,
+      "settings": {"clients": null, "decryption": "none"},
+      "streamSettings": {
+        "method": "splithttp", "network": "ws", "security": "TLS",
+        "tlsSettings": {"serverName": "a.example.com"},
+        "splithttpSettings": {"path": "/x"}
+      }
+    },
+    {
+      "tag": "a2", "protocol": "vless", "port": 2083,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "websocket", "security": "tls", "tlsSettings": {"serverName": "a.example.com"}}
+    },
+    {
+      "tag": "a3", "protocol": "vless", "port": 2084,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "tcp", "tcpSettings": {"header": {"type": "none"}}}
+    },
+    {
+      "tag": "a4", "protocol": "hysteria", "port": 8443,
+      "settings": {"version": 2, "users": []},
+      "streamSettings": {"network": "hysteria", "security": "tls", "tlsSettings": {"serverName": "h.example.com"}, "hysteriaSettings": {"version": 2}}
+    }
+  ]
+}

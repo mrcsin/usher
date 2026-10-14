@@ -1,0 +1,1 @@
+trojan://user-password@198.51.100.7:8446?fp=chrome&security=tls&sni=t.example.com&type=tcp#trojan-raw

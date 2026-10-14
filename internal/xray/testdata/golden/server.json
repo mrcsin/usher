@@ -1,0 +1,92 @@
+// Golden inputs: one inbound per supported shape. The expected client files sit beside this file
+// as <tag>.json and <tag>.txt.
+{
+  "inbounds": [
+    {
+      "tag": "vless-reality", "protocol": "vless", "port": 443,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "raw", "security": "reality",
+        "realitySettings": {
+          "privateKey": "cEUEZw0y-gOyW9gPA93c1bt6TrCFqbsXu4o9dTC0Zt0",
+          "serverNames": ["www.example.com"], "shortIds": ["ab12"], "target": "www.example.com:443"
+        }
+      }
+    },
+    {
+      "tag": "vless-xhttp", "protocol": "vless", "port": 2053,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "xhttp", "security": "tls",
+        "tlsSettings": {"serverName": "xh.example.com", "alpn": ["h2"], "certificates": [{"certificateFile": "/c/xh.pem", "keyFile": "/c/xh.key"}]},
+        "xhttpSettings": {
+          "path": "/xh", "host": "xh.example.com", "mode": "auto",
+          "xPaddingBytes": "2000-3000", "sessionIDPlacement": "header"
+        }
+      }
+    },
+    {
+      "tag": "vless-xhttp-extra", "protocol": "vless", "port": 2054,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "xhttp", "security": "tls",
+        "tlsSettings": {"serverName": "xh.example.com"},
+        "xhttpSettings": {"path": "/xh", "mode": "auto", "extra": {"xPaddingBytes": "100-200"}}
+      }
+    },
+    {
+      "tag": "vless-ws", "protocol": "vless", "port": 2083,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "ws", "security": "tls",
+        "tlsSettings": {"serverName": "ws.example.com"},
+        "wsSettings": {"path": "/ws"}
+      }
+    },
+    {
+      "tag": "hy2", "protocol": "hysteria", "port": 8443,
+      "settings": {"version": 2, "clients": []},
+      "streamSettings": {
+        "network": "hysteria", "security": "tls",
+        "tlsSettings": {"serverName": "hy.example.com", "alpn": ["h3"]},
+        "hysteriaSettings": {"version": 2},
+        "finalmask": {"udp": [{"type": "salamander", "settings": {"password": "obfs"}}]}
+      }
+    },
+    {
+      "tag": "hy2-hop", "protocol": "hysteria", "port": 8444,
+      "settings": {"version": 2, "clients": []},
+      "streamSettings": {
+        "network": "hysteria", "security": "tls",
+        "tlsSettings": {"serverName": "hy.example.com", "alpn": ["h3"]},
+        "hysteriaSettings": {"version": 2},
+        "finalmask": {"udp": [{"type": "salamander", "settings": {"password": "obfs"}}]}
+      },
+      "x-usher": {"hop_ports": "20000-30000"}
+    },
+    {
+      "tag": "hy2-pin", "protocol": "hysteria", "port": 8445,
+      "settings": {"version": 2, "clients": []},
+      "streamSettings": {
+        "network": "hysteria", "security": "tls",
+        "tlsSettings": {"serverName": "hy.example.com", "alpn": ["h3"]},
+        "hysteriaSettings": {"version": 2}
+      },
+      "x-usher": {"trust": "pin", "pin_sha256": "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"}
+    },
+    {
+      "tag": "vmess-ws", "protocol": "vmess", "port": 2096,
+      "settings": {"clients": []},
+      "streamSettings": {
+        "network": "ws", "security": "tls",
+        "tlsSettings": {"serverName": "vm.example.com"},
+        "wsSettings": {"path": "/vm"}
+      }
+    },
+    {
+      "tag": "trojan-raw", "protocol": "trojan", "port": 8446,
+      "settings": {"clients": []},
+      "streamSettings": {"network": "raw", "security": "tls", "tlsSettings": {"serverName": "t.example.com"}}
+    }
+  ]
+}

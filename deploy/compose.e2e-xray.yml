@@ -1,0 +1,92 @@
+name: ushere2exray
+services:
+  # Reality target and plain HTTP page that the proxied requests fetch.
+  target:
+    image: nginx:1.27-alpine
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.3
+    volumes:
+      - ./e2e/xray/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./e2e/xray/target.crt:/etc/nginx/certs/target.crt:ro
+      - ./e2e/xray/target.key:/etc/nginx/certs/target.key:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 1s
+      retries: 30
+  xray:
+    # The tag follows the xray-core version in go.mod.
+    image: ghcr.io/xtls/xray-core:26.10.10
+    restart: unless-stopped
+    # With Docker's init as PID 1 the test can SIGKILL the Xray process alone. Killing PID 1 from
+    # inside is ignored.
+    init: true
+    # Root uid for the ports and the socket; the group equals usher's group.
+    user: "0:${E2E_GID:-0}"
+    command: ["run", "-config", "/etc/xray/config.json"]
+    depends_on:
+      target:
+        condition: service_healthy
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.2
+    volumes:
+      # The directory, not the file: the test replaces config.json and the certificate files.
+      - ../.e2e-xray/xray:/etc/xray:ro
+      # A bind mount that the test user owns: after a hard kill usher unlinks the stale socket, and
+      # that needs write access to the directory.
+      - ../.e2e-xray/sock:/run/xray
+  usher:
+    build:
+      context: ..
+    image: usher:e2e
+    user: ${E2E_UID:-0}:${E2E_GID:-0}
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      xray:
+        condition: service_started
+    networks: [e2e]
+    volumes:
+      - ../.e2e-xray/config:/srv/usher/config:ro
+      - ../.e2e-xray/clients:/srv/usher/clients
+      - ../.e2e-xray/state:/srv/usher/state
+      - ../.e2e-xray/xray:/etc/xray:ro
+      - ../.e2e-xray/sock:/run/xray
+    environment:
+      USHER_HOST: 172.30.98.2
+      USHER_XRAY_SOCKET: /run/xray/api.sock
+      USHER_XRAY_CONFIG: /etc/xray/config.json
+  # Client of one user; the test writes its config to ../.e2e-xray/client/<user>/config.json. The
+  # config has one HTTP proxy inbound per tested link, and the test reaches them at the fixed
+  # address. SSL_CERT_FILE stands in for the public CA that a real certificate chains to.
+  client-alice:
+    profiles: [client]
+    image: ghcr.io/xtls/xray-core:26.10.10
+    command: ["run", "-config", "/etc/xray/config.json"]
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.11
+    volumes:
+      - ../.e2e-xray/client/alice:/etc/xray:ro
+      - ../.e2e-xray/client/ca.pem:/ca.pem:ro
+    environment:
+      SSL_CERT_FILE: /ca.pem
+  client-bob:
+    profiles: [client]
+    image: ghcr.io/xtls/xray-core:26.10.10
+    command: ["run", "-config", "/etc/xray/config.json"]
+    networks:
+      e2e:
+        ipv4_address: 172.30.98.12
+    volumes:
+      - ../.e2e-xray/client/bob:/etc/xray:ro
+      - ../.e2e-xray/client/ca.pem:/ca.pem:ro
+    environment:
+      SSL_CERT_FILE: /ca.pem
+networks:
+  e2e:
+    ipam:
+      config:
+        - subnet: 172.30.98.0/24

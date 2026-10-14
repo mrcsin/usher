@@ -1,12 +1,9 @@
-// Package pass runs one reconcile pass: enrollment, rendering and the requests to awg-grpc.
+// Package pass runs one reconcile pass over the backends: enrollment, the state file, the
+// requests to each backend and the clients directory.
 package pass
 
-import "net/netip"
-
-// Settings holds the server facts and the paths one pass works with.
+// Settings holds the paths one pass works with.
 type Settings struct {
-	Host       netip.Addr   // USHER_HOST
-	DNS        []netip.Addr // USHER_DNS
 	ConfigPath string
 	ClientsDir string
 	StatePath  string

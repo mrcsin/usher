@@ -21,6 +21,27 @@ services:
     environment:
       # Must equal usher's group.
       AWG_GRPC_SOCKET_GID: "1000"
+  xray:
+    # The tag follows the xray-core version in usher's go.mod. A different version can change how
+    # Xray builds an inbound, and usher then reports every inbound as drifted.
+    image: ghcr.io/xtls/xray-core:26.10.10
+    restart: unless-stopped
+    # Must equal usher's group, so that usher can open the API socket.
+    user: "0:1000"
+    command: ["run", "-config", "/etc/xray/config.json"]
+    ports:
+      - "443:443/tcp"
+      - "8443:8443/udp"
+    volumes:
+      # The directory, not the file: usher and Xray then both see a replaced config.
+      - ./xray:/etc/xray:ro
+      # The certificates and keys that the config names. Only Xray mounts them: usher needs no
+      # access to a key file, and Xray reloads the files itself.
+      - ./xray-certs:/etc/xray-certs:ro
+      # A host directory that uid 1000 owns (create it before the first start), not a named volume,
+      # which belongs to root: after a crash usher unlinks the stale API socket, and that needs
+      # write access to the directory.
+      - ./xray-sock:/run/xray
   usher:
     image: ghcr.io/mrcsin/usher:v0.1.0
     restart: unless-stopped
@@ -30,15 +51,22 @@ services:
     depends_on:
       awg:
         condition: service_healthy
+      xray:
+        condition: service_started
     volumes:
       # The host directories belong to uid 1000.
       - ./usher/config:/srv/usher/config:ro
       - ./usher/clients:/srv/usher/clients
       - usher-state:/srv/usher/state
       - awg-sock:/run/awg-grpc
+      - ./xray:/etc/xray:ro
+      - ./xray-sock:/run/xray
     environment:
       USHER_HOST: "203.0.113.10"
+      USHER_AWG_SOCKET: /run/awg-grpc/awg.sock
       USHER_DNS: "1.1.1.1,1.0.0.1"
+      USHER_XRAY_SOCKET: /run/xray/api.sock
+      USHER_XRAY_CONFIG: /etc/xray/config.json
 volumes:
   awg-sock:
   usher-state:

@@ -1,0 +1,1 @@
+vmess://3f2504e0-4f89-41d3-9a0c-0305e82c3301@198.51.100.7:2096?encryption=auto&fp=chrome&path=%2Fvm&security=tls&sni=vm.example.com&type=ws#vmess-ws

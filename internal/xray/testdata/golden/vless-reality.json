@@ -1,0 +1,46 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      },
+      "tag": "socks-in"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10809,
+      "protocol": "http",
+      "tag": "http-in"
+    }
+  ],
+  "log": {
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "address": "198.51.100.7",
+        "encryption": "none",
+        "flow": "xtls-rprx-vision",
+        "id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        "port": 443
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "publicKey": "VKrK-MBnuOdef7qi0Kp3c7UvISj_SrynyMJowLZmXBc",
+          "serverName": "www.example.com",
+          "shortId": "ab12",
+          "spiderX": "/"
+        },
+        "security": "reality"
+      },
+      "tag": "vless-reality"
+    }
+  ]
+}
