@@ -61,6 +61,30 @@ func (p *Pass) Run(ctx context.Context) {
 	byInterface := usersByInterface(cfg)
 	owners := interfaceOwners(open)
 	failed := make(map[interfaceKey]bool)
+	rendered, changed := p.prepareAll(st, open, byInterface, owners, failed)
+
+	if changed {
+		if err := state.Save(p.settings.StatePath, st); err != nil {
+			p.log.Error("saving state", "error", err)
+			return
+		}
+	}
+
+	p.applyAll(ctx, st, open, byInterface, failed)
+
+	// A backend that is down hides its interface names, so every unreferenced name could be one.
+	if len(down) == 0 {
+		p.logUnknown(cfg, owners)
+	}
+
+	p.mirrorClients(open, down, rendered, failed)
+}
+
+// prepareAll prepares every interface that exactly one backend reports. It marks a failed
+// interface in failed, and returns the rendered client files by interface and whether any
+// backend changed the state.
+func (p *Pass) prepareAll(st *state.State, open []openBackend, byInterface map[string][]string,
+	owners map[string][]string, failed map[interfaceKey]bool) (map[interfaceKey]map[string][]byte, bool) {
 	rendered := make(map[interfaceKey]map[string][]byte)
 	changed := false
 	for i, b := range open {
@@ -82,14 +106,12 @@ func (p *Pass) Run(ctx context.Context) {
 			changed = changed || entriesChanged
 		}
 	}
+	return rendered, changed
+}
 
-	if changed {
-		if err := state.Save(p.settings.StatePath, st); err != nil {
-			p.log.Error("saving state", "error", err)
-			return
-		}
-	}
-
+// applyAll applies every interface that Prepare did not fail and marks the ones that fail now.
+func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend,
+	byInterface map[string][]string, failed map[interfaceKey]bool) {
 	for i, b := range open {
 		for _, name := range b.session.Interfaces() {
 			key := interfaceKey{i, name}
@@ -102,12 +124,12 @@ func (p *Pass) Run(ctx context.Context) {
 			}
 		}
 	}
+}
 
-	// A backend that is down hides its interface names, so every unreferenced name could be one.
-	if len(down) == 0 {
-		p.logUnknown(cfg, owners)
-	}
-
+// mirrorClients writes the client files of the interfaces that did not fail and keeps the current
+// files of the failed interfaces and of the backends that are down.
+func (p *Pass) mirrorClients(open []openBackend, down []Backend,
+	rendered map[interfaceKey]map[string][]byte, failed map[interfaceKey]bool) {
 	desired := make(map[string][]byte)
 	for key, files := range rendered {
 		if !failed[key] {
