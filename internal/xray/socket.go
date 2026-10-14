@@ -41,7 +41,7 @@ func removeStaleSocket(socketPath string) (bool, error) {
 	case err != nil:
 		return false, fmt.Errorf("opening xray socket lock: %w", err)
 	default:
-		defer lock.Close() // closing the file releases the flock
+		defer lock.Close()
 		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			if errors.Is(err, syscall.EWOULDBLOCK) {
 				return false, nil

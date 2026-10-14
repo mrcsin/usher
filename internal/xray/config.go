@@ -583,7 +583,7 @@ func validHopPorts(s string) bool {
 	return from >= 1 && from < to && to <= 65535
 }
 
-// object returns v as a JSON object, or nil when it is not one. A read from nil is safe.
+// object returns v as a JSON object, or nil when it is not one.
 func object(v any) map[string]any {
 	m, _ := v.(map[string]any)
 	return m

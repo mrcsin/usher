@@ -94,7 +94,6 @@ func (f *userService) AlterInbound(_ context.Context, req *command.AlterInboundR
 	return &command.AlterInboundResponse{}, nil
 }
 
-// credentials maps the emails of the tag to their credentials.
 func (f *userService) credentials(t *testing.T, in inbound) map[string]string {
 	t.Helper()
 	out := map[string]string{}

@@ -23,8 +23,7 @@ const (
 
 // clientOutbound returns the Xray client outbound for one user on the inbound. It copies only what
 // the client needs from the server config and rebuilds the TLS and Reality blocks, so nothing
-// secret or server-only reaches the result. host is the address clients dial unless x-usher sets
-// one. The xhttp tuning is packed into extra, the one form both the .json and the share link carry.
+// secret or server-only reaches the result. host is the address clients dial unless x-usher sets one.
 func clientOutbound(in inbound, host string, entry state.XrayEntry) (map[string]any, error) {
 	stream, err := clientStream(in, entry)
 	if err != nil {

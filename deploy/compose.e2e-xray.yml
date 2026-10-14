@@ -19,8 +19,7 @@ services:
     image: ghcr.io/xtls/xray-core:26.10.10
     restart: unless-stopped
     # With Docker's init as PID 1 the test can SIGKILL the Xray process alone. Killing PID 1 from
-    # inside is ignored, and "docker kill" marks the container as stopped by hand, which disables
-    # the restart policy.
+    # inside is ignored.
     init: true
     # Root uid for the ports and the socket; the group equals usher's group.
     user: "0:${E2E_GID:-0}"

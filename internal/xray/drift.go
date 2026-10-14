@@ -53,10 +53,11 @@ func isManagedProxyType(proxyType string) bool {
 	return false
 }
 
-// checkDrift compares every valid inbound of the file with the inbound of the same tag in the
-// running Xray. The result maps a tag to the reason its running inbound differs from the file or
-// is missing; a tag without an entry matches. A mismatch means Xray runs an older file, so the
-// client files for the tag are not trustworthy until Xray restarts.
+// checkDrift compares every inbound of the file that passed structural validation, hint errors
+// included, with the inbound of the same tag in the running Xray. The result maps a tag to the
+// reason its running inbound differs from the file or is missing; a tag without an entry matches.
+// A mismatch means Xray runs an older file, so the client files for the tag are not trustworthy
+// until Xray restarts.
 //
 // Certificate entries that name a file are left out on both sides: Xray reloads those files
 // itself, so a changed file is no drift. A reason names the differing parts and never a

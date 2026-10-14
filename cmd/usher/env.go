@@ -94,7 +94,7 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// parseAbsPath checks that value is an absolute path; it serves the socket and config paths.
+// parseAbsPath requires a non-empty absolute path.
 func parseAbsPath(name, value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)

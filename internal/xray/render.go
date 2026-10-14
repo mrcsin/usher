@@ -68,7 +68,7 @@ func renderLink(clientJSON []byte) ([]byte, error) {
 }
 
 // renderFiles returns the client files of one user on the inbound, keyed by clients.Path: always
-// the .json, and the .txt unless the inbound cannot have a link. A link libxray refuses is a
+// the .json, and the .txt unless no client reads its link. A link libxray refuses is a
 // defect of usher, which builds only shapes libxray knows; it is logged and the .json stays.
 func renderFiles(log *slog.Logger, in inbound, host, user string, entry state.XrayEntry) (map[string][]byte, error) {
 	outbound, err := clientOutbound(in, host, entry)

@@ -30,7 +30,6 @@ const (
 	changeTimeout  = 10 * time.Second
 	connectTimeout = 40 * time.Second
 	driftTimeout   = 60 * time.Second
-	// restartTimeout and killTimeout are the recovery bounds of the acceptance evidence.
 	restartTimeout = 45 * time.Second
 	killTimeout    = 90 * time.Second
 	// refillTick is a little longer than the 30 s refill interval.
@@ -60,7 +59,6 @@ var (
 	srv *server
 )
 
-// path returns a path under the scratch root.
 func (composeProject) path(elem ...string) string {
 	return filepath.Join(append([]string{repoDir, scratchRoot}, elem...)...)
 }
@@ -198,7 +196,6 @@ func markLogs(t *testing.T) logMark {
 	return logMark(len(usherLogs(t)))
 }
 
-// logsSince returns the usher log after the mark.
 func logsSince(t *testing.T, mark logMark) string {
 	t.Helper()
 	logs := usherLogs(t)

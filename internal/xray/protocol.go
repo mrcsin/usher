@@ -23,8 +23,7 @@ type protocolSpec struct {
 	usesID bool
 	// clientSettings adds the credential and the protocol fields of the client outbound settings.
 	clientSettings func(in inbound, e state.XrayEntry, settings map[string]any)
-	// account builds the account Xray stores for the entry on the inbound.
-	account func(in inbound, e state.XrayEntry) proto.Message
+	account        func(in inbound, e state.XrayEntry) proto.Message
 	// credential returns the part of an account that identifies what the client must present, or
 	// "" for an account of another type. Two accounts with the same credential are the same user.
 	credential func(account proto.Message) string

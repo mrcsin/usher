@@ -52,7 +52,6 @@ func mirrorOne(t *testing.T, in inbound) map[string]any {
 	return out
 }
 
-// wantJSON compares got with the JSON document want.
 func wantJSON(t *testing.T, got map[string]any, want string) {
 	t.Helper()
 	encoded, err := json.Marshal(got)

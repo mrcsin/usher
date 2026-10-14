@@ -57,7 +57,6 @@ func routes() []route {
 	return all
 }
 
-// routesOf returns the routes of one inbound.
 func routesOf(tag string) []route {
 	var among []route
 	for _, r := range routes() {

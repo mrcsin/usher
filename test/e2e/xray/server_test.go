@@ -21,7 +21,7 @@ const (
 	tagWS       = "vless-ws"
 )
 
-// tags lists the inbounds in the order the suite connects to them, Hysteria2 first.
+// tags lists the inbounds. The order fixes the proxy port of each route.
 var tags = []string{tagHysteria, tagReality, tagXHTTP, tagWS}
 
 const (
@@ -33,7 +33,7 @@ const (
 	driftShortID   = "cd34"
 )
 
-// Where the server config and the files it names sit, relative to the config directory that
+// Where the files the server config names sit, relative to the config directory that
 // Xray mounts at /etc/xray.
 const (
 	wsCertFile = "certs/ws.pem"
