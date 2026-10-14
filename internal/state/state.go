@@ -82,6 +82,28 @@ type XrayEntry struct {
 	Password string    `json:"password,omitempty"`
 }
 
+// UnmarshalJSON decodes an entry. A malformed id fails with a fixed text, because the UUID parser
+// quotes the start of the value it rejects.
+func (e *XrayEntry) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID       string `json:"id"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	e.Password = raw.Password
+	e.ID = uuid.Nil
+	if raw.ID != "" {
+		id, err := uuid.Parse(raw.ID)
+		if err != nil {
+			return errors.New("id is not a UUID")
+		}
+		e.ID = id
+	}
+	return nil
+}
+
 // EntryName returns the key of a user's entry on an interface or inbound, in State.AWG or
 // State.Xray.
 func EntryName(iface, user string) string {

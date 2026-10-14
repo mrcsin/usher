@@ -41,8 +41,8 @@
           // A certificate that a public CA issued for the domain above.
           "certificates": [
             {
-              "certificateFile": "/etc/xray/certs/REPLACE_WITH_FULLCHAIN.pem",
-              "keyFile": "/etc/xray/certs/REPLACE_WITH_PRIVKEY.pem"
+              "certificateFile": "/etc/xray-certs/REPLACE_WITH_FULLCHAIN.pem",
+              "keyFile": "/etc/xray-certs/REPLACE_WITH_PRIVKEY.pem"
             }
           ]
         },

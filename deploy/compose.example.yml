@@ -35,6 +35,9 @@ services:
     volumes:
       # The directory, not the file: usher and Xray then both see a replaced config.
       - ./xray:/etc/xray:ro
+      # The certificates and keys that the config names. Only Xray mounts them: usher needs no
+      # access to a key file, and Xray reloads the files itself.
+      - ./xray-certs:/etc/xray-certs:ro
       # A host directory that uid 1000 owns (create it before the first start), not a named volume,
       # which belongs to root: after a crash usher unlinks the stale API socket, and that needs
       # write access to the directory.

@@ -106,9 +106,21 @@ func TestEnvironmentFrom(t *testing.T) {
 			wantErr: "USHER_XRAY_CONFIG",
 		},
 		{
-			name:    "xray config without socket",
+			name:    "xray config without any socket",
 			env:     map[string]string{"USHER_HOST": "203.0.113.10", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
-			wantErr: "USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required",
+			wantErr: "USHER_XRAY_CONFIG is set without USHER_XRAY_SOCKET",
+		},
+		{
+			name: "xray config without xray socket",
+			env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock",
+				"USHER_DNS": "1.1.1.1", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
+			wantErr: "USHER_XRAY_CONFIG is set without USHER_XRAY_SOCKET",
+		},
+		{
+			name: "DNS without awg socket",
+			env: map[string]string{"USHER_HOST": "203.0.113.10", "USHER_DNS": "1.1.1.1",
+				"USHER_XRAY_SOCKET": "/run/xray/api.sock", "USHER_XRAY_CONFIG": "/etc/xray/config.json"},
+			wantErr: "USHER_DNS is set without USHER_AWG_SOCKET",
 		},
 		{
 			name:    "empty DNS",

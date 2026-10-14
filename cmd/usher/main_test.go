@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -116,7 +118,11 @@ func TestServe(t *testing.T) {
 }
 
 func TestDeployExampleConfig(t *testing.T) {
-	inbounds, err := xray.ReadConfig(filepath.Join("..", "..", "deploy", "xray", "config.json"))
+	path := filepath.Join("..", "..", "deploy", "xray", "config.json")
+	wantTags := []string{"vless-reality", "hysteria2"}
+
+	// As shipped, the placeholders make the Reality inbound fail on its key.
+	inbounds, err := xray.ReadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +130,31 @@ func TestDeployExampleConfig(t *testing.T) {
 	for _, in := range inbounds {
 		tags = append(tags, in.Tag)
 	}
-	if want := []string{"vless-reality", "hysteria2"}; !slices.Equal(tags, want) {
-		t.Errorf("tags = %v, want %v", tags, want)
+	if !slices.Equal(tags, wantTags) {
+		t.Errorf("tags = %v, want %v", tags, wantTags)
+	}
+	if inbounds[0].Err == nil || !strings.Contains(inbounds[0].Err.Error(), "privateKey") {
+		t.Errorf("shipped Reality inbound error = %v, want one about privateKey", inbounds[0].Err)
+	}
+
+	// With the placeholder key replaced, every inbound is valid.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	replaced := strings.ReplaceAll(string(data), "REPLACE_WITH_X25519_PRIVATE_KEY", key)
+	filled := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(filled, []byte(replaced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inbounds, err = xray.ReadConfig(filled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range inbounds {
+		if in.Err != nil {
+			t.Errorf("inbound %s: %v", in.Tag, in.Err)
+		}
 	}
 }

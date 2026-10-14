@@ -36,20 +36,24 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 	var awgSocket, xraySocket, xrayConfig string
 	var dns []netip.Addr
 	if getenv("USHER_AWG_SOCKET") != "" {
-		if awgSocket, err = parseSocketPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET")); err != nil {
+		if awgSocket, err = parseAbsPath("USHER_AWG_SOCKET", getenv("USHER_AWG_SOCKET")); err != nil {
 			return environment{}, err
 		}
 		if dns, err = parseDNS(getenv("USHER_DNS")); err != nil {
 			return environment{}, err
 		}
+	} else if getenv("USHER_DNS") != "" {
+		return environment{}, errors.New("USHER_DNS is set without USHER_AWG_SOCKET")
 	}
 	if getenv("USHER_XRAY_SOCKET") != "" {
-		if xraySocket, err = parseSocketPath("USHER_XRAY_SOCKET", getenv("USHER_XRAY_SOCKET")); err != nil {
+		if xraySocket, err = parseAbsPath("USHER_XRAY_SOCKET", getenv("USHER_XRAY_SOCKET")); err != nil {
 			return environment{}, err
 		}
-		if xrayConfig, err = parseSocketPath("USHER_XRAY_CONFIG", getenv("USHER_XRAY_CONFIG")); err != nil {
+		if xrayConfig, err = parseAbsPath("USHER_XRAY_CONFIG", getenv("USHER_XRAY_CONFIG")); err != nil {
 			return environment{}, err
 		}
+	} else if getenv("USHER_XRAY_CONFIG") != "" {
+		return environment{}, errors.New("USHER_XRAY_CONFIG is set without USHER_XRAY_SOCKET")
 	}
 	if awgSocket == "" && xraySocket == "" {
 		return environment{}, errors.New("USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required")
@@ -90,8 +94,8 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// parseSocketPath checks that value is an absolute path; it serves the socket and config paths.
-func parseSocketPath(name, value string) (string, error) {
+// parseAbsPath checks that value is an absolute path; it serves the socket and config paths.
+func parseAbsPath(name, value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)
 	}

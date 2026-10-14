@@ -161,6 +161,7 @@ func TestSaveMode(t *testing.T) {
 func TestLoadRejects(t *testing.T) {
 	secret := "SECRETSECRETSECRET"
 	encodedSecret := base64.StdEncoding.EncodeToString([]byte(secret))
+	longSecret := strings.Repeat("LONGSECRET", 5)[:45] // the UUID parser would quote its first 9 characters
 	tests := []struct {
 		name string
 		json string
@@ -185,6 +186,7 @@ func TestLoadRejects(t *testing.T) {
 		{"xray neither", `{"version":2,"xray":{"reality/a":{}}}`},
 		{"xray nil id", `{"version":2,"xray":{"reality/a":{"id":"00000000-0000-0000-0000-000000000000"}}}`},
 		{"xray bad id", `{"version":2,"xray":{"reality/a":{"id":"` + secret + `"}}}`},
+		{"xray long bad id", `{"version":2,"xray":{"reality/a":{"id":"` + longSecret + `"}}}`},
 		{"not json", `version: 1`},
 	}
 	for _, tt := range tests {
@@ -197,7 +199,7 @@ func TestLoadRejects(t *testing.T) {
 			if err == nil {
 				t.Fatal("Load succeeded, want error")
 			}
-			for _, stored := range []string{secret, encodedSecret, testKey(1), testKey(2)} {
+			for _, stored := range []string{secret, encodedSecret, testKey(1), testKey(2), longSecret, longSecret[:9]} {
 				if strings.Contains(err.Error(), stored) {
 					t.Fatalf("error quotes a stored value %q: %v", stored, err)
 				}
