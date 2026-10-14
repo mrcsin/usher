@@ -36,11 +36,20 @@ type Session struct {
 }
 
 // Open reads the Xray config at configPath, connects to the API and checks every inbound of the
-// file against the running Xray.
-func Open(ctx context.Context, dial Dial, configPath string, log *slog.Logger) (*Session, error) {
+// file against the running Xray. When socketPath is a stale socket of a killed Xray, Open removes
+// it and fails, so the pass reports Xray down and the restart policy can start Xray again.
+func Open(ctx context.Context, dial Dial, socketPath, configPath string, log *slog.Logger) (*Session, error) {
 	inbounds, err := ReadConfig(configPath)
 	if err != nil {
 		return nil, err
+	}
+	removed, err := removeStaleSocket(socketPath)
+	if err != nil {
+		return nil, err
+	}
+	if removed {
+		log.Warn("removed stale xray socket", "path", socketPath)
+		return nil, errors.New("xray is down: removed its stale api socket")
 	}
 	client, closeConn, err := dial()
 	if err != nil {

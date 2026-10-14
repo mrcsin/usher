@@ -409,11 +409,11 @@ reported by awg-grpc" and nothing reaches Xray.
 **Files:**
 - Create: `internal/xray/socket.go`, `internal/xray/socket_test.go`
 
-- [ ] before dialing: if the socket path exists and `flock(LOCK_EX|LOCK_NB)` on `<socket>.lock`
+- [x] before dialing: if the socket path exists and `flock(LOCK_EX|LOCK_NB)` on `<socket>.lock`
       succeeds, unlink the socket, release the lock and report Xray down for this pass
-- [ ] write tests in `t.TempDir()`: a stale socket (listener with `SetUnlinkOnClose(false)`) is
+- [x] write tests in `t.TempDir()`: a stale socket (listener with `SetUnlinkOnClose(false)`) is
       removed; a socket whose lock another descriptor holds is kept; a missing path is left alone
-- [ ] run `go test -race ./...` - must pass before Task 7
+- [x] run `go test -race ./...` - must pass before Task 7
 
 ### Task 7: Client mirror
 
