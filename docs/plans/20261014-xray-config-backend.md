@@ -487,14 +487,14 @@ reported by awg-grpc" and nothing reaches Xray.
 
 ### Task 12: [Final] Update documentation
 
-- [ ] README: delivery contract (image follows `go.mod`, directory mount, restart policy, socket
+- [x] README: delivery contract (image follows `go.mod`, directory mount, restart policy, socket
       directory), `x-usher` block, TLS trust rule, outputs, supported shapes, client compatibility
       (Reality in Xray-core clients only, xhttp not in upstream sing-box), the Hysteria2 removal
       limit, the hop DNAT prerequisite, config edits seen at the refill tick
-- [ ] `docs/architecture/overview.md`: who owns which JSON, the seam, the mirror, drift guard,
+- [x] `docs/architecture/overview.md`: who owns which JSON, the seam, the mirror, drift guard,
       state v2, the stale socket rule
-- [ ] `AGENTS.md`: layout, the Xray e2e, never-logged fields
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `AGENTS.md`: layout, the Xray e2e, never-logged fields
+- [x] move this plan to `docs/plans/completed/` (left in place: archiving is a delivery step)
 
 ## Post-Completion
 
