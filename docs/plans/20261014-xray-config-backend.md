@@ -520,3 +520,6 @@ reported by awg-grpc" and nothing reaches Xray.
 **Release**
 - bump the image tag in `deploy/compose.example.yml`; the notes state the new required variables,
   `users.json` version 2, the `users.json.v1` backup and the Xray image 26.10.10
+
+**Executed by exec:**
+- branch: xray-config
