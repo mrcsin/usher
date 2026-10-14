@@ -377,14 +377,14 @@ reported by awg-grpc" and nothing reaches Xray.
 **Files:**
 - Create: `internal/xray/drift.go`, `internal/xray/drift_test.go`
 
-- [ ] compare `Build()` of each managed inbound with one `ListInbounds`: proxy type, proxy settings,
+- [x] compare `Build()` of each managed inbound with one `ListInbounds`: proxy type, proxy settings,
       receiver settings, with file-based certificate entries removed on both sides
-- [ ] a mismatch or a tag missing at runtime is a per-tag drift reason naming the differing part
+- [x] a mismatch or a tag missing at runtime is a per-tag drift reason naming the differing part
       only; runtime tags absent from the file are logged each pass
-- [ ] write tests with a fake `HandlerServiceClient`: match, port change, `shortIds` change, a
+- [x] write tests with a fake `HandlerServiceClient`: match, port change, `shortIds` change, a
       `privateKey` change (reason without the value), protocol change, a `certificateFile` inbound
       with changed file contents (no drift), a file tag missing at runtime, an extra runtime tag
-- [ ] run `go test -race ./...` - must pass before Task 5
+- [x] run `go test -race ./...` - must pass before Task 5
 
 ### Task 5: Users through HandlerService
 
