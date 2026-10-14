@@ -1,0 +1,79 @@
+// Operator server config: every shape the backend accepts.
+{
+  "api": {"listen": "/run/xray/api.sock,0660", "services": ["HandlerService"], "tag": "api"},
+  /* inbounds the backend skips */
+  "inbounds": [
+    {"tag": "api-in", "protocol": "dokodemo-door", "port": 10085, "settings": {"address": "127.0.0.1"}},
+    {"protocol": "vless", "port": 9999, "settings": {"clients": [], "decryption": "none"}},
+    {
+      "tag": "vless-reality", "protocol": "vless", "port": 443,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "raw", "security": "reality",
+        "realitySettings": {
+          "privateKey": "cEUEZw0y-gOyW9gPA93c1bt6TrCFqbsXu4o9dTC0Zt0",
+          "serverNames": ["*.example.com", "", "www.example.com"],
+          "shortIds": ["ab12"], "target": "www.example.com:443"
+        }
+      },
+      "x-usher": {"address": "203.0.113.10"} # trailing comment
+    },
+    {
+      "tag": "xh", "protocol": "vless", "port": 2053,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "xhttp", "security": "tls",
+        "tlsSettings": {"serverName": "xh.example.com", "certificates": [{"certificateFile": "/c/xh.pem", "keyFile": "/c/xh.key"}]},
+        "xhttpSettings": {"path": "/xh", "mode": "auto", "xPaddingBytes": "2000-3000"}
+      }
+    },
+    {
+      "tag": "xh-extra", "protocol": "vless", "port": 2054,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {
+        "network": "xhttp", "security": "tls",
+        "tlsSettings": {"serverName": "xh.example.com"},
+        "xhttpSettings": {"path": "/xh", "extra": {"xPaddingBytes": "100-200"}}
+      }
+    },
+    {
+      "tag": "ws", "protocol": "vless", "port": 2083,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"serverName": "ws.example.com"}, "wsSettings": {"path": "/ws"}}
+    },
+    {
+      "tag": "grpc", "protocol": "vless", "port": 2087,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"serverName": "g.example.com"}, "grpcSettings": {"serviceName": "svc"}}
+    },
+    {
+      "tag": "hu", "protocol": "vless", "port": 2088,
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "httpupgrade", "security": "tls", "tlsSettings": {"serverName": "hu.example.com"}, "httpupgradeSettings": {"path": "/hu"}}
+    },
+    {
+      "tag": "hy2", "protocol": "hysteria", "port": 8443,
+      "settings": {"version": 2, "clients": []},
+      "streamSettings": {
+        "network": "hysteria", "security": "tls",
+        "tlsSettings": {"serverName": "hy.example.com", "alpn": ["h3"]},
+        "hysteriaSettings": {"version": 2, "udpIdleTimeout": 60},
+        "finalmask": {
+          "udp": [{"type": "salamander", "settings": {"password": "obfs"}}],
+          "quicParams": {"congestion": "bbr"}
+        }
+      },
+      "x-usher": {"hop_ports": "20000-30000", "trust": "pin", "pin_sha256": "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899"}
+    },
+    {
+      "tag": "vmess-ws", "protocol": "vmess", "port": 2096,
+      "settings": {"clients": []},
+      "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": "/vm"}}
+    },
+    {
+      "tag": "trojan", "protocol": "trojan", "port": 8444,
+      "settings": {"clients": [], "fallbacks": [{"dest": 80}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "t.example.com"}}
+    }
+  ]
+}

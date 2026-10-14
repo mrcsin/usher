@@ -357,20 +357,20 @@ reported by awg-grpc" and nothing reaches Xray.
 - Create: `internal/xray/config.go`, `internal/xray/config_test.go`
 - Create: `internal/xray/testdata/` (server configs)
 
-- [ ] require `github.com/xtls/libxray v1.261010.0` and the `xray-core` commit it requires
+- [x] require `github.com/xtls/libxray v1.261010.0` and the `xray-core` commit it requires
       (`701af60772cd`, release 26.10.10); record the stripped binary size and the cold CI
       `go build` time in the progress log
-- [ ] read the file with Xray's comment-aware reader, decode inbounds into `infra/conf` types plus
+- [x] read the file with Xray's comment-aware reader, decode inbounds into `infra/conf` types plus
       raw maps, normalize the aliases; register the discard log handler
-- [ ] keep inbounds whose protocol has an entry (`vless`, `hysteria`, `vmess`, `trojan`); skip
+- [x] keep inbounds whose protocol has an entry (`vless`, `hysteria`, `vmess`, `trojan`); skip
       others and untagged ones
-- [ ] validate per inbound: single integer port, no unix listen, empty `clients`/`users`, VLESS
+- [x] validate per inbound: single integer port, no unix listen, empty `clients`/`users`, VLESS
       `decryption` none, empty server Hysteria auth, masks only salamander without `packetSize`
       (plus `quicParams`), no xhttp `downloadSettings`, a usable Reality `serverNames` entry, an
       SNI for TLS, the `x-usher` schema (`trust` values, `pin_sha256` only with `pin`, a pin source
       for `pin`, the fingerprint allowlist on Reality); each failure names the field
-- [ ] write tests for every accepted shape, every failure, every alias and a file with comments
-- [ ] run `go test -race ./...` and `docker build .` (CI) - must pass before Task 4
+- [x] write tests for every accepted shape, every failure, every alias and a file with comments
+- [x] run `go test -race ./...` and `docker build .` (CI) - must pass before Task 4 (docker build run on `ger`)
 
 ### Task 4: Drift guard against the running Xray
 
