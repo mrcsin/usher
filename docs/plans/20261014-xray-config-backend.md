@@ -420,16 +420,16 @@ reported by awg-grpc" and nothing reaches Xray.
 **Files:**
 - Create: `internal/xray/mirror.go`, `internal/xray/mirror_test.go`
 
-- [ ] transport fields as in Solution Overview, xhttp `extra` packing or verbatim server `extra`,
+- [x] transport fields as in Solution Overview, xhttp `extra` packing or verbatim server `extra`,
       the VLESS flow rule
-- [ ] the TLS trust rule: `ca` default, `pin` from `pin_sha256` or the inline certificate
-- [ ] Reality rewrite including the `serverNames` rule and `mldsa65Verify` from `mldsa65Seed`
-- [ ] Hysteria2: client auth, salamander password, the udphop mask from `hop_ports` in libxray's
+- [x] the TLS trust rule: `ca` default, `pin` from `pin_sha256` or the inline certificate
+- [x] Reality rewrite including the `serverNames` rule and `mldsa65Verify` from `mldsa65Seed`
+- [x] Hysteria2: client auth, salamander password, the udphop mask from `hop_ports` in libxray's
       shape
-- [ ] `x-usher` overrides
-- [ ] write the leak test (Testing Strategy) and tests for each trust case, hop, flow, xhttp
+- [x] `x-usher` overrides
+- [x] write the leak test (Testing Strategy) and tests for each trust case, hop, flow, xhttp
       packing, server `extra` and override
-- [ ] run `go test -race ./...` - must pass before Task 8
+- [x] run `go test -race ./...` - must pass before Task 8
 
 ### Task 8: Render client files and golden tests
 
