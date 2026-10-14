@@ -11,7 +11,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
+
+var testUUID = uuid.MustParse("11111111-2222-3333-4444-555555555555")
 
 func keyOf(b byte) Key {
 	return Key(bytes.Repeat([]byte{b}, KeyLength))
@@ -23,10 +27,14 @@ func testKey(b byte) string {
 
 func validState() *State {
 	return &State{
-		Version: 1,
+		Version: 2,
 		AWG: map[string]Entry{
 			"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
 			"awg1/phone": {Address: netip.MustParseAddr("10.9.1.2"), PrivateKey: keyOf(3), PresharedKey: keyOf(4)},
+		},
+		Xray: map[string]XrayEntry{
+			"reality/phone": {ID: testUUID},
+			"hy2/phone":     {Password: "hunter2hunter2"},
 		},
 	}
 }
@@ -36,8 +44,8 @@ func TestLoadMissingFileIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if s.Version != 1 || len(s.AWG) != 0 {
-		t.Fatalf("want empty version 1 state, got %+v", s)
+	if s.Version != 2 || len(s.AWG) != 0 || len(s.Xray) != 0 {
+		t.Fatalf("want empty version 2 state, got %+v", s)
 	}
 }
 
@@ -59,9 +67,15 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 // TestSaveFormat pins the users.json format: addresses are plain strings and keys are base64.
 func TestSaveFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "users.json")
-	s := &State{AWG: map[string]Entry{
-		"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
-	}}
+	s := &State{
+		AWG: map[string]Entry{
+			"awg0/phone": {Address: netip.MustParseAddr("10.8.1.2"), PrivateKey: keyOf(1), PresharedKey: keyOf(2)},
+		},
+		Xray: map[string]XrayEntry{
+			"hy2/phone":     {Password: "pw"},
+			"reality/phone": {ID: testUUID},
+		},
+	}
 	if err := Save(path, s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -70,12 +84,20 @@ func TestSaveFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{
-  "version": 1,
+  "version": 2,
   "awg": {
     "awg0/phone": {
       "address": "10.8.1.2",
       "private_key": "` + testKey(1) + `",
       "preshared_key": "` + testKey(2) + `"
+    }
+  },
+  "xray": {
+    "hy2/phone": {
+      "password": "pw"
+    },
+    "reality/phone": {
+      "id": "11111111-2222-3333-4444-555555555555"
     }
   }
 }
@@ -143,7 +165,7 @@ func TestLoadRejects(t *testing.T) {
 		name string
 		json string
 	}{
-		{"bad version", `{"version":2,"awg":{}}`},
+		{"bad version", `{"version":3,"awg":{}}`},
 		{"missing version", `{"awg":{}}`},
 		{"private key not base64", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + secret + `","preshared_key":"` + testKey(2) + `"}}}`},
 		{"private key wrong length", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + encodedSecret + `","preshared_key":"` + testKey(2) + `"}}}`},
@@ -158,6 +180,11 @@ func TestLoadRejects(t *testing.T) {
 		{"private key missing", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","preshared_key":"` + testKey(2) + `"}}}`},
 		{"preshared key missing", `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + testKey(1) + `"}}}`},
 		{"address missing", `{"version":1,"awg":{"awg0/a":{"private_key":"` + testKey(1) + `","preshared_key":"` + testKey(2) + `"}}}`},
+		{"xray name without slash", `{"version":2,"xray":{"reality":{"id":"` + testUUID.String() + `"}}}`},
+		{"xray id and password", `{"version":2,"xray":{"reality/a":{"id":"` + testUUID.String() + `","password":"` + secret + `"}}}`},
+		{"xray neither", `{"version":2,"xray":{"reality/a":{}}}`},
+		{"xray nil id", `{"version":2,"xray":{"reality/a":{"id":"00000000-0000-0000-0000-000000000000"}}}`},
+		{"xray bad id", `{"version":2,"xray":{"reality/a":{"id":"` + secret + `"}}}`},
 		{"not json", `version: 1`},
 	}
 	for _, tt := range tests {
@@ -180,5 +207,62 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatalf("file changed after failed Load: %q, %v", got, readErr)
 			}
 		})
+	}
+}
+
+func TestLoadVersion1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "users.json")
+	v1 := `{"version":1,"awg":{"awg0/a":{"address":"10.8.1.2","private_key":"` + testKey(1) +
+		`","preshared_key":"` + testKey(2) + `"}}}`
+	if err := os.WriteFile(path, []byte(v1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s.AWG) != 1 || s.Xray == nil || len(s.Xray) != 0 {
+		t.Fatalf("v1 state = %+v, want one awg entry and an empty xray map", s)
+	}
+	if got, _ := os.ReadFile(path); string(got) != v1 {
+		t.Fatalf("Load changed the file: %q", got)
+	}
+	if _, err := os.Stat(path + ".v1"); err == nil {
+		t.Fatal("Load wrote a backup")
+	}
+
+	if err := Save(path, s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got, err := os.ReadFile(path + ".v1"); err != nil || string(got) != v1 {
+		t.Fatalf("backup = %q, %v, want the version 1 file", got, err)
+	}
+	info, err := os.Stat(path + ".v1")
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("backup mode = %v, %v, want 0600", info, err)
+	}
+	saved, err := Load(path)
+	if err != nil || saved.Version != 2 {
+		t.Fatalf("saved = %+v, %v, want version 2", saved, err)
+	}
+
+	// A second save must not overwrite the backup with version 2 content.
+	if err := Save(path, saved); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	if got, _ := os.ReadFile(path + ".v1"); string(got) != v1 {
+		t.Fatalf("backup changed on second save: %q", got)
+	}
+}
+
+func TestSaveNoBackupForVersion2(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "users.json")
+	for range 2 {
+		if err := Save(path, validState()); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+	if _, err := os.Stat(path + ".v1"); err == nil {
+		t.Fatal("Save made a backup of a version 2 file")
 	}
 }

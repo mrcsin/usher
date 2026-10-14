@@ -11,7 +11,7 @@ import (
 
 var (
 	userNamePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-	interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_=+.-]{0,14}$`)
+	interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_=+.-]{0,31}$`)
 )
 
 // Load reads path and returns the interface names of every user. A user with an empty list is

@@ -13,10 +13,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/mrcsin/usher/internal/atomicfile"
 )
 
-const version = 1
+// version is the format that Save writes. Load also accepts firstVersion, which has no xray group.
+const version = 2
+
+const firstVersion = 1
+
+// backupSuffix names the copy of a version 1 file that Save makes before it writes version 2.
+const backupSuffix = ".v1"
 
 const fileMode = 0o600
 
@@ -68,15 +75,25 @@ func (e Entry) Route() netip.Prefix {
 	return netip.PrefixFrom(e.Address, hostBits)
 }
 
-// EntryName returns the key of a user's entry on an interface in State.AWG.
+// XrayEntry holds the credential of one user on one Xray inbound. Exactly one field is set: ID
+// for VLESS and VMess, Password for Trojan and Hysteria2.
+type XrayEntry struct {
+	ID       uuid.UUID `json:"id,omitzero"`
+	Password string    `json:"password,omitempty"`
+}
+
+// EntryName returns the key of a user's entry on an interface or inbound, in State.AWG or
+// State.Xray.
 func EntryName(iface, user string) string {
 	return iface + "/" + user
 }
 
-// State is the content of users.json. AWG maps "interface/user" to its entry.
+// State is the content of users.json. AWG and Xray map "interface/user" and "tag/user" to the
+// entry of that user.
 type State struct {
-	Version int              `json:"version"`
-	AWG     map[string]Entry `json:"awg"`
+	Version int                  `json:"version"`
+	AWG     map[string]Entry     `json:"awg"`
+	Xray    map[string]XrayEntry `json:"xray"`
 }
 
 // InterfaceEntries yields the user name and the entry of every entry on the interface.
@@ -95,7 +112,7 @@ func (s *State) InterfaceEntries(iface string) iter.Seq2[string, Entry] {
 func Load(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return &State{Version: version, AWG: map[string]Entry{}}, nil
+		return &State{Version: version, AWG: map[string]Entry{}, Xray: map[string]XrayEntry{}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
@@ -104,22 +121,34 @@ func Load(path string) (*State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if s.Version != version {
+	if s.Version != version && s.Version != firstVersion {
 		return nil, fmt.Errorf("%s: unsupported version %d", path, s.Version)
 	}
 	if s.AWG == nil {
 		s.AWG = map[string]Entry{}
+	}
+	if s.Xray == nil {
+		s.Xray = map[string]XrayEntry{}
 	}
 	for name, e := range s.AWG {
 		if err := validate(name, e); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
+	for name, e := range s.Xray {
+		if err := validateXray(name, e); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	return &s, nil
 }
 
-// Save writes s to path atomically with mode 0600.
+// Save writes s to path atomically with mode 0600. When path holds a version 1 file, Save first
+// copies it to path+".v1" unless that copy exists, so a rollback is a file rename.
 func Save(path string, s *State) error {
+	if err := backupFirstVersion(path); err != nil {
+		return err
+	}
 	s.Version = version
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -130,10 +159,33 @@ func Save(path string, s *State) error {
 	return atomicfile.Write(path, data, fileMode)
 }
 
+func backupFirstVersion(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	var head struct {
+		Version int `json:"version"`
+	}
+	if json.Unmarshal(data, &head) != nil || head.Version != firstVersion {
+		return nil
+	}
+	backup := path + backupSuffix
+	if _, err := os.Stat(backup); err == nil {
+		return nil
+	}
+	if err := atomicfile.Write(backup, data, fileMode); err != nil {
+		return fmt.Errorf("backing up %s: %w", path, err)
+	}
+	return nil
+}
+
 func validate(name string, e Entry) error {
-	iface, user, ok := strings.Cut(name, "/")
-	if !ok || iface == "" || user == "" || strings.Contains(user, "/") {
-		return fmt.Errorf("entry %q: name is not interface/user", name)
+	if err := validateName(name); err != nil {
+		return err
 	}
 	if !e.Address.Is4() {
 		return fmt.Errorf("entry %q: address is not IPv4", name)
@@ -143,6 +195,26 @@ func validate(name string, e Entry) error {
 	}
 	if e.PresharedKey == (Key{}) {
 		return fmt.Errorf("entry %q: preshared_key is missing", name)
+	}
+	return nil
+}
+
+func validateXray(name string, e XrayEntry) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	hasID := e.ID != uuid.Nil
+	hasPassword := e.Password != ""
+	if hasID == hasPassword {
+		return fmt.Errorf("entry %q: exactly one of id and password must be set", name)
+	}
+	return nil
+}
+
+func validateName(name string) error {
+	iface, user, ok := strings.Cut(name, "/")
+	if !ok || iface == "" || user == "" || strings.Contains(user, "/") {
+		return fmt.Errorf("entry %q: name is not interface/user", name)
 	}
 	return nil
 }

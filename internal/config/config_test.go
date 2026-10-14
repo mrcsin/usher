@@ -33,8 +33,8 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name:    "longest interface name",
-			content: "alice: [" + strings.Repeat("a", 15) + "]\n",
-			want:    map[string][]string{"alice": {strings.Repeat("a", 15)}},
+			content: "alice: [" + strings.Repeat("a", 32) + "]\n",
+			want:    map[string][]string{"alice": {strings.Repeat("a", 32)}},
 		},
 		{
 			name:    "block list",
@@ -73,7 +73,7 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name:    "interface name too long",
-			content: "alice: [abcdefghijklmnop]\n",
+			content: "alice: [" + strings.Repeat("a", 33) + "]\n",
 			errHas:  []string{"line 1", "alice"},
 		},
 		{

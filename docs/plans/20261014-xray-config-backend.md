@@ -341,14 +341,14 @@ reported by awg-grpc" and nothing reaches Xray.
 - Modify: `internal/state/state.go`, `internal/state/state_test.go`
 - Modify: `internal/config/config.go`, `internal/config/config_test.go`
 
-- [ ] start from `64dd6b0` and `69a3ba5`: `Xray map[string]XrayEntry`, `XrayEntry{ID uuid.UUID;
+- [x] start from `64dd6b0` and `69a3ba5`: `Xray map[string]XrayEntry`, `XrayEntry{ID uuid.UUID;
       Password string}` with exactly one set; validate names `tag/user`; errors never quote a secret
-- [ ] version 2; `Load` accepts 1 and 2; before the first save of a version 1 file write
+- [x] version 2; `Load` accepts 1 and 2; before the first save of a version 1 file write
       `users.json.v1`
-- [ ] widen the interface name pattern to 32 characters
-- [ ] write tests: v1 load and backup, v2 round trip, both credential kinds, invalid entries, no
+- [x] widen the interface name pattern to 32 characters
+- [x] write tests: v1 load and backup, v2 round trip, both credential kinds, invalid entries, no
       secret in errors, a 32-character tag
-- [ ] run `go test -race ./...` - must pass before Task 3
+- [x] run `go test -race ./...` - must pass before Task 3
 
 ### Task 3: Read the operator's Xray config
 
