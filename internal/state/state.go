@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	"github.com/mrcsin/usher/internal/atomicfile"
 )
 
