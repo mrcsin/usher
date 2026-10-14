@@ -50,13 +50,13 @@ in both. The steps below run per backend; the text names the awg calls.
 7. Make `clients/` equal to the rendered files of applied interfaces plus the current files of
    failed ones.
 
-Two triggers start a pass: a change of `usher.yml` and a 30 s refill ticker. One goroutine runs
-the watcher loop and the passes, with the poll ticker, the settle timer and the refill ticker as
-cases of one `select`. A tick that fires during a pass waits in its ticker, which buffers one tick,
-so each source yields at most one following pass. A refill tick and a file change during one pass
-give two following passes. File polling follows `reproxy` (`app/discovery/provider/file.go`): `os.Stat` every 3 s, and a new
-modification time counts once it has stayed unchanged for 500 ms. The connection is opened per
-pass and every call has a 10 s deadline.
+Two triggers start a pass: a change of `usher.yml` and a 30 s refill ticker. One goroutine runs the
+watcher loop and the passes, with the poll ticker, the settle timer and the refill ticker as cases
+of one `select`. A tick that fires during a pass waits in its ticker, which buffers one tick, so
+each source yields at most one following pass. A refill tick and a file change during one pass give
+two following passes. File polling follows `reproxy` (`app/discovery/provider/file.go`): `os.Stat`
+every 3 s, and a new modification time counts once it has stayed unchanged for 500 ms. The
+connection is opened per pass and every call has a 10 s deadline.
 
 ## Keys and addresses
 
@@ -116,30 +116,32 @@ pass and every call has a 10 s deadline.
 - The operator owns one Xray server config: inbounds, outbounds, routing, `api`, certificates,
   Reality keys, and a per-inbound `x-usher` block with client hints. Xray reads it at start. usher
   reads the same file read-only at every pass.
-- usher owns the users inside the inbounds, through the API, and everything under `clients/`.
-  Xray keeps users in memory, so the refill tick restores them after a restart.
+- usher owns the users inside the inbounds, through the API, and everything under `clients/`. Xray
+  keeps users in memory, so the refill tick restores them after a restart.
 - A managed inbound has a tag that matches the interface name pattern (32 characters), one integer
-  port, no unix `listen`, empty `clients` and a protocol of vless, hysteria, vmess or trojan.
-  Other inbounds are skipped. An inbound that fails validation carries its error. A structural error
-  (port, listen, clients, decryption, transport, Hysteria auth, masks, xhttp, Reality keys, a
-  decode failure, an invalid or duplicate tag) is returned by `Prepare`, so the pass skips `Apply`
-  and touches no user of the tag; `Apply` also returns it if called. An `x-usher` hint error, like
-  an enroll or render error, is kept by `Prepare`, which returns none, so the pass still calls
-  `Apply`. `Apply` removes the users who left only when the drift check found the running inbound
-  usable, then returns the error, which keeps the old files. `validate` runs the hint check last,
-  so a hint error is the only reason left and `checkDrift` still compares the inbound. A tag defined twice is reported once, and its entry carries the error.
+  port, no unix `listen`, empty `clients` and a protocol of vless, hysteria, vmess or trojan. Other
+  inbounds are skipped. An inbound that fails validation carries its error. A structural error
+  (port, listen, clients, decryption, transport, Hysteria auth, masks, xhttp, Reality keys, a decode
+  failure, an invalid or duplicate tag) is returned by `Prepare`, so the pass skips `Apply` and
+  touches no user of the tag; `Apply` also returns it if called. An `x-usher` hint error, like an
+  enroll or render error, is kept by `Prepare`, which returns none, so the pass still calls `Apply`.
+  `Apply` removes the users who left only when the drift check found the running inbound usable,
+  then returns the error, which keeps the old files. `validate` runs the hint check last, so a hint
+  error is the only reason left and `checkDrift` still compares the inbound. A tag defined twice is
+  reported once, and its entry carries the error.
 
 ### Reading the config
 
-`ReadConfig` reads the file with Xray's comment-aware reader into `infra/conf` types plus raw
-maps. It normalizes the aliases (`method`, `splithttp`, `websocket`, `tcp`, `splithttpSettings`,
+`readConfig` reads the file with Xray's comment-aware reader into `infra/conf` types plus raw maps.
+It normalizes the aliases (`method`, `splithttp`, `websocket`, `tcp`, `splithttpSettings`,
 `tcpSettings`, Hysteria `users`) before validation and mirroring. Every error names the field and
 never a value. `x-usher` decodes with unknown keys rejected. Reality matches names by exact lookup,
-so there an explicit `x-usher.sni` must be one of the `serverNames` entries, and the config needs
-an entry without a wildcard when `sni` is unset. A Reality `privateKey` and `mldsa65Seed` must
-decode, and the seed must differ from the key. `hop_ports` requires from < to. An inbound without
-`streamSettings` stays without them in `Raw`, so it builds as Xray builds the file. ReadConfig registers a discard handler
-for Xray's global logger once, because `Build()` prints deprecation warnings.
+so there an explicit `x-usher.sni` must be one of the `serverNames` entries, and the config needs an
+entry without a wildcard when `sni` is unset. A Reality `privateKey` and `mldsa65Seed` must decode,
+and the seed must differ from the key. `hop_ports` requires from < to. An inbound without
+`streamSettings` stays without them in `Raw`, so it builds as Xray builds the file. readConfig
+registers a discard handler for Xray's global logger once, because `Build()` prints deprecation
+warnings.
 
 ### Users
 
@@ -160,20 +162,21 @@ for Xray's global logger once, because `Build()` prints deprecation warnings.
 `Open` calls `ListInbounds` once and compares each valid inbound with `Build()` of its file entry:
 proxy type, proxy settings, port, stream settings and receiver settings. Certificate entries that
 name a file are dropped on both sides, because Xray reloads those files itself. A tag missing at
-runtime counts as drift. The proxy type of the running handler is compared with the file's
-protocol before any `Build()`; a mismatch, or a file entry that does not decode or build, marks the
-drift unusable. The reason names the differing parts; an error of `Build()` becomes a fixed
-text, because Xray quotes the keys and short ids it rejects. `Apply` reconciles users first and then
-returns the drift error, so revocation works while the old client files stay. The exception is an
-unusable drift: a missing inbound, another proxy type or a failed comparison (see Users). A running managed inbound that the file does not define is logged each pass.
+runtime counts as drift. The proxy type of the running handler is compared with the file's protocol
+before any `Build()`; a mismatch, or a file entry that does not decode or build, marks the drift
+unusable. The reason names the differing parts; an error of `Build()` becomes a fixed text, because
+Xray quotes the keys and short ids it rejects. `Apply` reconciles users first and then returns the
+drift error, so revocation works while the old client files stay. The exception is an unusable
+drift: a missing inbound, another proxy type or a failed comparison (see Users). A running managed
+inbound that the file does not define is logged each pass.
 
 ### Stale socket
 
 A killed Xray leaves its API socket, and a new start fails on it. Xray holds `flock(LOCK_EX)` on
 `<socket>.lock` while it listens. Before dialing, usher opens the lock read-only and tries
-`LOCK_EX|LOCK_NB`. When it gets the lock, no Xray listens: usher unlinks the socket and reports
-Xray down for this pass. The restart policy starts Xray at its next attempt. The socket directory
-is a bind mount that usher can write. A failed Xray start removes the lock file, so for a socket without
+`LOCK_EX|LOCK_NB`. When it gets the lock, no Xray listens: usher unlinks the socket and reports Xray
+down for this pass. The restart policy starts Xray at its next attempt. The socket directory is a
+bind mount that usher can write. A failed Xray start removes the lock file, so for a socket without
 one usher probes the socket instead: only a refused connection counts as stale, and a live Xray, or
 a socket that a new Xray replaced meanwhile, stays. A path that is not a socket is an error.
 

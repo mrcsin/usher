@@ -2,8 +2,8 @@
 
 Container that reads `config/usher.yml`, a map of user name to interface names, and keeps the
 AmneziaWG peers, the Xray users and the client files in `clients/` in step with it through the
-`awg-grpc` and Xray API unix sockets; `README.md` describes it. Go module `github.com/mrcsin/usher`; entry point
-`cmd/usher`. All commands run from the repository root.
+`awg-grpc` and Xray API unix sockets; `README.md` describes it. Go module `github.com/mrcsin/usher`;
+entry point `cmd/usher`. All commands run from the repository root.
 
 ## Build
 
