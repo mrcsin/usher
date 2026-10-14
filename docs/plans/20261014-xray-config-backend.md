@@ -392,17 +392,17 @@ reported by awg-grpc" and nothing reaches Xray.
 - Create: `internal/xray/protocol.go`, `internal/xray/session.go`, `internal/xray/enroll.go`
 - Create: matching `_test.go` files
 
-- [ ] protocol table: credential kind, account builder and credential comparison for VLESS (`id`,
+- [x] protocol table: credential kind, account builder and credential comparison for VLESS (`id`,
       flow), Hysteria2 (`auth`), VMess (`id`), Trojan (`password`)
-- [ ] enroll: create the credential for every referenced user without one; never change an
+- [x] enroll: create the credential for every referenced user without one; never change an
       existing entry
-- [ ] session: `Interfaces` reports every managed tag; `Open` runs the drift check; `Apply` lists
+- [x] session: `Interfaces` reports every managed tag; `Open` runs the drift check; `Apply` lists
       all users per inbound, compares credentials, removes foreign and changed emails, adds missing
       and changed, logs `users changed`, then returns the tag's drift error if any
-- [ ] write tests with a fake service: add, remove, change, foreign email, seeded credential kept,
+- [x] write tests with a fake service: add, remove, change, foreign email, seeded credential kept,
       VMess echo with `SecuritySettings` (no change), removal while the tag is in drift, partial
       failure converging, no secret in logs
-- [ ] run `go test -race ./...` - must pass before Task 6
+- [x] run `go test -race ./...` - must pass before Task 6
 
 ### Task 6: Stale API socket recovery
 
