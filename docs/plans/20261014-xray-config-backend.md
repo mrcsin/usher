@@ -164,13 +164,16 @@ reported by awg-grpc" and nothing reaches Xray.
    - after one user leaves `usher.yml`, new connections through that user fail and the other user
      still works;
    - after `docker compose restart xray`, connections work again within 45 s;
-   - after `docker kill -s KILL` of Xray, the restart policy restarts it, it fails on the stale
-     socket until usher unlinks it at its next tick, and connections work again within 90 s;
+   - after SIGKILL of the Xray process (sent from a helper container in its PID namespace, because
+     `docker kill` bypasses the restart policy), the restart policy restarts it, it fails on the
+     stale socket until usher unlinks it at its next tick, and connections work again within 90 s;
    - changing `shortIds` in the mounted config without restarting Xray fails that inbound with a
      drift reason at the next tick, and a user removed from `usher.yml` while that drift is present
      is still removed from Xray;
    - rewriting the `certificateFile` with a new leaf from the same CA causes no drift.
 4. awg e2e: `go test -tags e2e -count=1 -v ./test/e2e/` still passes on a host with the module.
+   Not run: no available host has the `amneziawg` module, so this item is deferred to the CI `e2e`
+   job and has no evidence yet.
 5. Manual smoke on a public host: import one VLESS+Reality link and one Hysteria2 link into
    v2rayNG and open a page through each.
 
@@ -214,11 +217,12 @@ reported by awg-grpc" and nothing reaches Xray.
   usher.
 - **Drift guard.** `Open` calls `ListInbounds` once and compares each managed inbound with
   `Build()` of its file entry: proxy type, proxy settings and receiver settings. Certificate
-  entries with a `certificateFile` are removed from the file entry before `Build()` (usher has no
-  access to the key files) and entries with a `CertificatePath` from the runtime side; Xray
+  entries with a `certificateFile` are removed from the file entry before `Build()` (Xray reloads
+  those files itself, so a changed file is no drift) and entries with a `CertificatePath` from the runtime side; Xray
   reloads those files itself. A tag in the file but not at runtime also counts as drift. `Apply`
   reconciles users regardless and then returns the drift error, so revocation keeps working while
-  the old client files stay. The drift reason names the differing part (port, proxy type, proxy
+  the old client files stay; when the running inbound is missing or runs another proxy type,
+  `Apply` changes nothing, because an account of the wrong type panics Xray. The drift reason names the differing part (port, proxy type, proxy
   settings, stream settings), never a value.
 - **Client mirror.**
   - Taken from the server: `network`, `security`; from `wsSettings`, `grpcSettings` and
@@ -332,8 +336,9 @@ reported by awg-grpc" and nothing reaches Xray.
 - [x] keep the awg behaviour of `master` unchanged
 - [x] write tests for the seam: two fake backends, a collision, a down backend with two suffixes,
       the `USHER_DNS` rule
-- [x] run `go test -race ./...` and the awg e2e (CI) - must pass before Task 2 (awg e2e deferred
-      to CI, not run locally)
+- [x] run `go test -race ./...` - passes
+- [ ] run the awg e2e - deferred to the CI `e2e` job; it has not run on any host, because no
+      available host has the `amneziawg` module
 
 ### Task 2: users.json version 2 with Xray credentials
 
@@ -482,7 +487,10 @@ reported by awg-grpc" and nothing reaches Xray.
 - [x] verify edge cases are handled
 - [x] run full test suite: `go test -race -count=1 ./...`
 - [x] run `scripts/format.sh`, shellcheck and actionlint
-- [x] run e2e tests: `go test -tags e2e -count=1 -v ./test/e2e/...` (CI) (awg e2e deferred to CI, not run locally; Xray e2e passed on ger in Task 10, code unchanged since)
+- [x] run the Xray e2e: `go test -tags e2e -count=1 -v ./test/e2e/xray/` (passed on ger; re-run
+      there after the review fixes)
+- [ ] run the awg e2e: `go test -tags e2e -count=1 -v ./test/e2e/` - deferred to the CI `e2e` job,
+      not run on any host
 - [x] verify test coverage meets project standard (go test -cover: xray 90.9%, awg 96.6%, config 97.6%, pass 97.9%, state 91.0%, watch 100%, clients 78.9%, cmd/usher 73.2%, atomicfile 61.5%)
 
 ### Task 12: [Final] Update documentation
@@ -494,7 +502,8 @@ reported by awg-grpc" and nothing reaches Xray.
 - [x] `docs/architecture/overview.md`: who owns which JSON, the seam, the mirror, drift guard,
       state v2, the stale socket rule
 - [x] `AGENTS.md`: layout, the Xray e2e, never-logged fields
-- [x] move this plan to `docs/plans/completed/` (left in place: archiving is a delivery step)
+- [ ] move this plan to `docs/plans/completed/` - not done, left in place: archiving is a delivery
+      step
 
 ## Post-Completion
 

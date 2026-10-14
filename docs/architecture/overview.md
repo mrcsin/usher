@@ -45,7 +45,8 @@ in both. The steps below run per backend; the text names the awg calls.
 5. For each interface that did not fail: call `ApplyPeers` with one peer per referencing user
    (`address/32`), with `allow_empty` when no user references the interface. An error fails the
    interface.
-6. Log every user and interface pair whose interface `awg-grpc` does not report.
+6. When no backend is down, log every user and interface pair that no backend reports ("interface
+   is not reported by any backend").
 7. Make `clients/` equal to the rendered files of applied interfaces plus the current files of
    failed ones.
 
@@ -61,7 +62,7 @@ pass and every call has a 10 s deadline.
 
 - `state/users.json` is the only source of secrets. Entries are keyed `interface/user` under the
   `awg` group. The kernel and `clients/` derive from it. usher saves it (temp file, fsync, rename,
-  directory fsync, mode 0600) only when an entry changed, and always before `ApplyPeers`.
+  directory fsync, mode 0600) only when an entry changed, and always before any backend's `Apply`.
 - A new entry gets an X25519 key pair (`crypto/ecdh`), 32 random PSK bytes and an address.
 - The address is the lowest host address of the interface's first IPv4 prefix that is not the
   network or broadcast address, not an interface address and not held by another entry of that
@@ -79,11 +80,13 @@ pass and every call has a 10 s deadline.
 - A file without any user and interface pair is invalid, so a truncated file cannot wipe a node.
 - A failure of one interface never stops the daemon and never blocks the others.
 - An interface without an IPv4 prefix fails only when a user references it.
-- `clients/` files of an interface that `awg-grpc` no longer reports are removed.
+- `clients/` files of an interface that no backend reports are removed.
 - `USHER_HOST` is an IPv4 address, not a name: a client whose DNS points into the tunnel cannot
   resolve the name again to reconnect.
 - No private key, PSK or `client_params` value is logged. A public key without an entry is logged
   as base64.
+- No Reality `privateKey` or `mldsa65Seed`, key file, `sockopt`, `fallbacks` entry or drift value
+  is logged or written to `clients/`.
 - No subcommands besides `usher run`, no central management, no migration of existing peers.
 
 ## Operations
@@ -117,16 +120,21 @@ pass and every call has a 10 s deadline.
   Xray keeps users in memory, so the refill tick restores them after a restart.
 - A managed inbound has a tag that matches the interface name pattern (32 characters), one integer
   port, no unix `listen`, empty `clients` and a protocol of vless, hysteria, vmess or trojan.
-  Other inbounds are skipped. An inbound that fails validation carries its error: `Prepare`
-  returns it, the pass skips its `Apply` and keeps its files.
+  Other inbounds are skipped. An inbound that fails validation carries its error. `Prepare` keeps
+  that error (as it does for an enroll or render error) and returns none, so the pass still calls
+  `Apply`. `Apply` then only removes the users who left, and returns the error, which keeps the old
+  files. A tag defined twice is reported once, and its entry carries the error.
 
 ### Reading the config
 
 `ReadConfig` reads the file with Xray's comment-aware reader into `infra/conf` types plus raw
 maps. It normalizes the aliases (`method`, `splithttp`, `websocket`, `tcp`, `splithttpSettings`,
 `tcpSettings`, Hysteria `users`) before validation and mirroring. Every error names the field and
-never a value. `x-usher` decodes with unknown keys rejected. An explicit `x-usher.sni` relaxes the
-Reality `serverNames` rule. `hop_ports` requires from < to. ReadConfig registers a discard handler
+never a value. `x-usher` decodes with unknown keys rejected. Reality matches names by exact lookup,
+so there an explicit `x-usher.sni` must be one of the `serverNames` entries, and the config needs
+an entry without a wildcard when `sni` is unset. A Reality `privateKey` and `mldsa65Seed` must
+decode, and the seed must differ from the key. `hop_ports` requires from < to. An inbound without
+`streamSettings` stays without them in `Raw`, so it builds as Xray builds the file. ReadConfig registers a discard handler
 for Xray's global logger once, because `Build()` prints deprecation warnings.
 
 ### Users
@@ -138,6 +146,8 @@ for Xray's global logger once, because `Build()` prints deprecation warnings.
   VLESS `id` and `flow`, VMess `id`, Trojan `password`, Hysteria `auth`. It removes foreign and
   changed emails and adds missing and changed ones. It tries every operation, joins the errors and
   logs `users changed`. The next pass converges from the listed state.
+- When the running inbound is missing or runs another protocol, `Apply` changes nothing: an
+  account of the wrong type makes Xray's validator panic and kills the process.
 - Removal stops new connections. An open Hysteria2 QUIC connection stays until the client
   reconnects.
 
@@ -145,10 +155,11 @@ for Xray's global logger once, because `Build()` prints deprecation warnings.
 
 `Open` calls `ListInbounds` once and compares each valid inbound with `Build()` of its file entry:
 proxy type, proxy settings, port, stream settings and receiver settings. Certificate entries that
-name a file are dropped on both sides, because usher cannot read the key files and Xray reloads
-them. A tag missing at runtime counts as drift. The reason names the differing parts. `Apply`
-reconciles users first and then returns the drift error, so revocation works while the old client
-files stay. A running managed inbound that the file does not define is logged each pass.
+name a file are dropped on both sides, because Xray reloads those files itself. A tag missing at
+runtime counts as drift. The reason names the differing parts; an error of `Build()` becomes a fixed
+text, because Xray quotes the keys and short ids it rejects. `Apply` reconciles users first and then
+returns the drift error, so revocation works while the old client files stay. The exception is a
+missing inbound or another proxy type (see Users). A running managed inbound that the file does not define is logged each pass.
 
 ### Stale socket
 
@@ -156,7 +167,9 @@ A killed Xray leaves its API socket, and a new start fails on it. Xray holds `fl
 `<socket>.lock` while it listens. Before dialing, usher opens the lock read-only and tries
 `LOCK_EX|LOCK_NB`. When it gets the lock, no Xray listens: usher unlinks the socket and reports
 Xray down for this pass. The restart policy starts Xray at its next attempt. The socket directory
-is a bind mount that usher can write.
+is a bind mount that usher can write. A failed Xray start removes the lock file, so for a socket without
+one usher probes the socket instead: only a refused connection counts as stale, and a live Xray, or
+a socket that a new Xray replaced meanwhile, stays. A path that is not a socket is an error.
 
 ### Client mirror
 

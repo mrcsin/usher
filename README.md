@@ -31,7 +31,8 @@ bob: []
 - Removing a name, or setting it to `[]`, switches the user off. The keys stay, and putting the
   name back restores the same config.
 - A broken file changes nothing: usher keeps the last valid one and logs the error with its line.
-- A service that restarts empty is refilled within 30 s without any change to the file.
+- A service that restarts empty is refilled at the next refill tick (every 30 s; Xray measured
+  28 to 32 s, bounded at 45 s in the e2e) without any change to the file.
 
 Client files appear in `clients/<user>/<interface>`: `.conf` for AmneziaWG, `.json` and `.txt`
 for Xray. Secrets live in `state/users.json`, the only copy of every key: keep the state volume in
@@ -54,14 +55,25 @@ Images are `ghcr.io/mrcsin/usher:<tag>`, one per release. Drop the service you d
 usher the socket group of the service containers.
 
 To issue new keys for a user, stop usher, delete its `<interface>/<user>` entry from
-`users.json` and start it again.
+`users.json` and start it again. The Xray entries are under `xray` and named `<tag>/<user>`. If you
+change an inbound between a protocol with a UUID (VLESS, VMess) and one with a password (Trojan,
+Hysteria2), the stored credentials no longer fit: usher reports "stored credential does not fit"
+and keeps the old client files until you stop usher, delete the `<tag>/<user>` entries of that tag
+and start it again.
+
+### Upgrading
+
+- `USHER_AWG_SOCKET` is required for the AmneziaWG backend; earlier releases hardcoded the path.
+  Set it to the awg-grpc socket (`/run/awg-grpc/awg.sock` in the example) before you upgrade.
+- The first save writes `users.json` as version 2 and copies the old file to `users.json.v1`. To
+  roll back to an earlier image, stop usher and rename `users.json.v1` back to `users.json`.
 
 ## Xray
 
 You write the Xray server config and usher fills its inbounds with users. An inbound tag is the
 interface name in `usher.yml`, up to 32 characters. usher reads the config file and puts users
 into the running inbounds through Xray's `HandlerService`. It never writes the config. Xray keeps
-users in memory only, so usher refills them after a restart within 30 s.
+users in memory only, so usher refills them at the next refill tick after a restart.
 
 Per user and inbound usher writes `clients/<user>/<tag>.json`, a full client config with a local
 socks proxy on 127.0.0.1:10808 and an http proxy on 127.0.0.1:10809, and `clients/<user>/<tag>.txt`,
@@ -76,7 +88,12 @@ a share link.
   `/run/xray/api.sock,0660`. The Xray process group must equal usher's group.
 - The socket directory is a bind mount that usher can write. After a hard kill Xray leaves a stale
   socket and fails to start on it. usher unlinks the socket at its next tick, and Xray's restart
-  policy (`restart: unless-stopped`) starts it again.
+  policy (`restart: unless-stopped`) starts it again. usher unlinks a socket only when no process
+  holds the `<socket>.lock` file that Xray keeps beside it, or, when that file is gone (a failed
+  start removes it), when a connection to the socket is refused. A live Xray keeps its socket.
+- Keep certificates and key files outside the directory that usher mounts. usher does not read
+  them, and Xray reloads them itself. The example mounts `./xray-certs` into the Xray container
+  only.
 - The Xray image follows `xray-core` in `go.mod` (now `ghcr.io/xtls/xray-core:26.10.10`). Another
   version can change how Xray builds an inbound and put every inbound in drift.
 - Every managed inbound has a tag, a single integer `port`, no unix `listen` and an empty
@@ -119,14 +136,16 @@ optional, and an unknown key fails the inbound.
 | ------------- | ------------------------------------ | ---------------------------------------------------- |
 | `address`     | `USHER_HOST`                         | address clients dial                                 |
 | `port`        | the inbound `port`                   | port clients dial                                    |
-| `sni`         | `tlsSettings.serverName`, or the first Reality `serverNames` entry without `*` | name clients send |
+| `sni`         | `tlsSettings.serverName`, or the first Reality `serverNames` entry without `*` | name clients send; on Reality one of the `serverNames` entries |
 | `fingerprint` | `chrome`                             | uTLS fingerprint; Reality allows `chrome`, `firefox`, `safari` |
 | `trust`       | `ca`                                 | `ca` or `pin`, see below                             |
 | `pin_sha256`  | hash of the inline certificate       | hex SHA-256 of the leaf; only with `trust: pin`      |
 | `hop_ports`   | none                                 | Hysteria2 port range `from-to`, from < to            |
 
-A TLS inbound with neither `sni` nor `tlsSettings.serverName` fails. An explicit `sni` also
-replaces the Reality `serverNames` rule, for a config that lists only wildcard names.
+A TLS inbound with neither `sni` nor `tlsSettings.serverName` fails. Reality matches the name by
+exact lookup in `serverNames`, so on Reality an `sni` that is not literally one of its entries
+fails the inbound, and so does a config with only wildcard names. The privateKey and the
+`mldsa65Seed` must be base64url keys of the right size, and the seed must differ from the key.
 
 ### TLS trust
 
@@ -159,7 +178,12 @@ usher compares each inbound with the running Xray at every pass. After you edit 
 in the file, restart Xray. Until then usher logs a drift reason that names the part (port, proxy
 settings, stream settings), keeps the old client files and still removes users who left
 `usher.yml`. Certificate files that the config names are reloaded by Xray itself and cause no
-drift.
+drift. When the running inbound is missing or runs another protocol, usher changes nothing on it,
+because an account of the wrong type crashes Xray; restart Xray.
+
+An inbound that fails validation (an `x-usher` typo, a bad Reality key) also keeps its old client
+files, and usher still removes the users who left `usher.yml` from it. It adds no user and
+changes no credential until you fix the file.
 
 ## License
 

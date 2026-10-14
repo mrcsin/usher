@@ -57,7 +57,10 @@ tar adds `._*` AppleDouble files. A run killed by a signal leaves containers up;
 
 ```sh
 docker compose -f deploy/compose.e2e.yml --profile handshake down -v --remove-orphans
+docker compose -f deploy/compose.e2e-xray.yml --profile client down -v --remove-orphans
 ```
+
+The Xray suite also takes its project down at start.
 
 ## Format
 
@@ -82,7 +85,8 @@ Enable the pre-commit hook per clone: `git config core.hooksPath scripts/git-hoo
 `.github/workflows/ci.yml` runs on every pull request and every push to `master`.
 
 - `check`: `scripts/format.sh`, `go test -race`, shellcheck.
-- `e2e`: loads the pinned kernel module with `scripts/ci/module.sh`, then runs the e2e suite.
+- `e2e`: loads the pinned kernel module with `scripts/ci/module.sh`, runs `./test/e2e/` (awg), then
+  `./test/e2e/xray/`. The Xray step needs no module and runs even when the awg step failed.
 
 The module pin is `AWG_MODULE_REF` in `ci.yml`.
 
@@ -100,7 +104,7 @@ the notes of the annotated tag.
 - usher never writes the Xray server config. It owns the users of the managed inbounds and
   `clients/`.
 - `state/users.json` is the only source of secrets. The kernel and `clients/` derive from it, and
-  usher saves it before `ApplyPeers`.
+  usher saves it before any backend's `Apply`.
 - A failure of one interface never stops the daemon; the pass logs it and goes on.
 - No interface without a second implementation, no exported surface only for tests.
 
