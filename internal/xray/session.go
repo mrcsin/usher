@@ -97,12 +97,17 @@ func (s *Session) Interfaces() []string {
 }
 
 // Prepare enrolls the users on the inbound in st and renders their client files. When the inbound
-// failed validation, an enrolled credential does not fit it or a file cannot be rendered, Prepare
-// keeps the reason and returns no error: Apply then still revokes the users who left, and returns
-// the reason, which keeps the old client files.
+// failed structural validation, Prepare returns the error and the pass skips Apply, so usher
+// touches no user of that tag. When only the x-usher block failed, an enrolled credential does not
+// fit the inbound or a file cannot be rendered, the running inbound is known good: Prepare keeps
+// the reason and returns no error, and Apply then still revokes the users who left and returns the
+// reason, which keeps the old client files.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
 	in := s.byTag[name]
 	if in.Err != nil {
+		if !in.hintsOnly {
+			return nil, false, in.Err
+		}
 		s.broken[name] = in.Err
 		return nil, false, nil
 	}
@@ -126,9 +131,12 @@ func (s *Session) Prepare(st *state.State, name string, users []string) (map[str
 // Apply makes the inbound hold exactly the users, then returns the error of the tag, if any: the
 // reason Prepare kept, else the drift. Users are reconciled even under most drift, so a revoked
 // user loses access. When the running inbound is missing or runs another protocol, Apply changes
-// nothing, because an account of the wrong type crashes Xray. When Prepare kept a reason, Apply only
-// removes users.
+// nothing, because an account of the wrong type crashes Xray. It also changes nothing when the
+// inbound failed structural validation. When Prepare kept a reason, Apply only removes users.
 func (s *Session) Apply(ctx context.Context, st *state.State, name string, users []string) error {
+	if in := s.byTag[name]; in.Err != nil && !in.hintsOnly {
+		return in.Err
+	}
 	drift := s.drift[name]
 	var driftErr *driftError
 	if errors.As(drift, &driftErr) && driftErr.unusable {

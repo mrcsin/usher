@@ -178,12 +178,15 @@ usher compares each inbound with the running Xray at every pass. After you edit 
 in the file, restart Xray. Until then usher logs a drift reason that names the part (port, proxy
 settings, stream settings), keeps the old client files and still removes users who left
 `usher.yml`. Certificate files that the config names are reloaded by Xray itself and cause no
-drift. When the running inbound is missing or runs another protocol, usher changes nothing on it,
-because an account of the wrong type crashes Xray; restart Xray.
+drift. When the running inbound is missing, runs another protocol or cannot be compared with the
+file, usher changes nothing on it, because an account of the wrong type crashes Xray; restart Xray.
 
-An inbound that fails validation (an `x-usher` typo, a bad Reality key) also keeps its old client
-files, and usher still removes the users who left `usher.yml` from it. It adds no user and
-changes no credential until you fix the file.
+An inbound with an `x-usher` error, or one whose credential or client file cannot be built, keeps
+its old client files, and usher still removes the users who left `usher.yml` from it. It adds no
+user and changes no credential until you fix the file. An inbound that fails any other check (port,
+`listen`, non-empty `clients`, transport, Reality keys, a tag that is not a valid interface name
+or that the file defines twice) is left alone: usher cannot trust the file entry, so it adds and
+removes no user on that tag and keeps its old client files.
 
 ## License
 

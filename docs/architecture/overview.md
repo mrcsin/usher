@@ -120,10 +120,14 @@ pass and every call has a 10 s deadline.
   Xray keeps users in memory, so the refill tick restores them after a restart.
 - A managed inbound has a tag that matches the interface name pattern (32 characters), one integer
   port, no unix `listen`, empty `clients` and a protocol of vless, hysteria, vmess or trojan.
-  Other inbounds are skipped. An inbound that fails validation carries its error. `Prepare` keeps
-  that error (as it does for an enroll or render error) and returns none, so the pass still calls
-  `Apply`. `Apply` then only removes the users who left, and returns the error, which keeps the old
-  files. A tag defined twice is reported once, and its entry carries the error.
+  Other inbounds are skipped. An inbound that fails validation carries its error. A structural error
+  (port, listen, clients, decryption, transport, Hysteria auth, masks, xhttp, Reality keys, a
+  decode failure, an invalid or duplicate tag) is returned by `Prepare`, so the pass skips `Apply`
+  and touches no user of the tag; `Apply` also returns it if called. An `x-usher` hint error, like
+  an enroll or render error, is kept by `Prepare`, which returns none: the running inbound is known
+  good, so the pass still calls `Apply`, which only removes the users who left and returns the
+  error, which keeps the old files. `validate` runs the hint check last, so a hint error is the only
+  reason left. A tag defined twice is reported once, and its entry carries the error.
 
 ### Reading the config
 
@@ -146,8 +150,8 @@ for Xray's global logger once, because `Build()` prints deprecation warnings.
   VLESS `id` and `flow`, VMess `id`, Trojan `password`, Hysteria `auth`. It removes foreign and
   changed emails and adds missing and changed ones. It tries every operation, joins the errors and
   logs `users changed`. The next pass converges from the listed state.
-- When the running inbound is missing or runs another protocol, `Apply` changes nothing: an
-  account of the wrong type makes Xray's validator panic and kills the process.
+- When the running inbound is missing, runs another protocol or could not be compared, `Apply`
+  changes nothing: an account of the wrong type makes Xray's validator panic and kills the process.
 - Removal stops new connections. An open Hysteria2 QUIC connection stays until the client
   reconnects.
 
@@ -156,10 +160,12 @@ for Xray's global logger once, because `Build()` prints deprecation warnings.
 `Open` calls `ListInbounds` once and compares each valid inbound with `Build()` of its file entry:
 proxy type, proxy settings, port, stream settings and receiver settings. Certificate entries that
 name a file are dropped on both sides, because Xray reloads those files itself. A tag missing at
-runtime counts as drift. The reason names the differing parts; an error of `Build()` becomes a fixed
+runtime counts as drift. The proxy type of the running handler is compared with the file's
+protocol before any `Build()`; a mismatch, or a file entry that does not decode or build, marks the
+drift unusable. The reason names the differing parts; an error of `Build()` becomes a fixed
 text, because Xray quotes the keys and short ids it rejects. `Apply` reconciles users first and then
-returns the drift error, so revocation works while the old client files stay. The exception is a
-missing inbound or another proxy type (see Users). A running managed inbound that the file does not define is logged each pass.
+returns the drift error, so revocation works while the old client files stay. The exception is an
+unusable drift: a missing inbound, another proxy type or a failed comparison (see Users). A running managed inbound that the file does not define is logged each pass.
 
 ### Stale socket
 

@@ -36,6 +36,9 @@ type Inbound struct {
 	Hints      Hints
 	Raw        map[string]any
 	Err        error
+	// hintsOnly is true when Err comes from the x-usher block alone: the rest of the inbound is
+	// sound, so the running inbound can be trusted to match it.
+	hintsOnly bool
 }
 
 // Hints is the x-usher block of an inbound with the defaults that do not depend on usher's
@@ -191,10 +194,6 @@ func (in *Inbound) validate() error {
 			return fail("streamSettings.realitySettings."+field, reason)
 		}
 	}
-	if field, reason := in.readHints(stream); field != "" {
-		return fail(field, reason)
-	}
-
 	// The decode catches field type errors that the checks above do not look at. Xray's decoders
 	// can quote the value they reject, so the error names the Go field of a type mismatch at most.
 	encoded, err := json.Marshal(in.Raw)
@@ -208,6 +207,13 @@ func (in *Inbound) validate() error {
 			return fail("inbound", "does not decode as an Xray inbound: wrong type at "+typeErr.Field)
 		}
 		return fail("inbound", "does not decode as an Xray inbound")
+	}
+
+	// Last, so that a hint error is the only reason left: the inbound is sound and the running
+	// Xray can be trusted to match it.
+	if field, reason := in.readHints(stream); field != "" {
+		in.hintsOnly = true
+		return fail(field, reason)
 	}
 	return nil
 }

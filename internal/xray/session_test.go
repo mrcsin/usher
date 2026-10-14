@@ -224,13 +224,17 @@ func TestSessionPrepareHysteriaPinHasNoLink(t *testing.T) {
 }
 
 // TestSessionBrokenInboundStillRevokes covers the three ways Prepare keeps a reason instead of
-// failing: a validation error, a credential of the wrong kind and a file that cannot be rendered.
+// failing: an x-usher hint error, a credential of the wrong kind and a file that cannot be
+// rendered. The running inbound is known good in each, so Apply removes the users who left.
 func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 	notPEM := `{"tag": "pinned", "protocol": "vless", "port": 9003,
 		"x-usher": {"trust": "pin"},
 		"settings": {"clients": [], "decryption": "none"},
 		"streamSettings": {"network": "ws", "security": "tls",
 			"tlsSettings": {"serverName": "p.example.com", "certificates": [{"certificate": ["x"], "key": ["y"]}]}}},`
+	badHint := `{"tag": "hinted", "protocol": "vless", "port": 9004,
+		"x-usher": {"trust": "sideways"},
+		"settings": {"clients": [], "decryption": "none"}},`
 	tests := []struct {
 		name    string
 		extra   string
@@ -238,7 +242,7 @@ func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 		setup   func(st *state.State)
 		wantErr string
 	}{
-		{"validation error", badInbound, "bad", func(*state.State) {}, "settings.clients"},
+		{"x-usher hint error", badHint, "hinted", func(*state.State) {}, "x-usher.trust"},
 		{"credential of the wrong kind", "", "ws", func(st *state.State) {
 			st.Xray["ws/alice"] = state.XrayEntry{Password: "wrong-kind"}
 		}, "does not fit"},
@@ -272,6 +276,72 @@ func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 				t.Errorf("log lacks the removal:\n%s", f.logs)
 			}
 		})
+	}
+}
+
+// TestSessionStructuralErrorTouchesNothing: an inbound that fails structural validation returns
+// its error from Prepare, so the pass skips Apply, and a direct Apply still removes no user.
+func TestSessionStructuralErrorTouchesNothing(t *testing.T) {
+	badTag := `{"tag": "bad tag", "protocol": "vless", "port": 9005,
+		"settings": {"clients": [], "decryption": "none"}},`
+	dup := `{"tag": "ws", "protocol": "vless", "port": 9002,
+		"settings": {"clients": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5"}], "decryption": "none"}},`
+	tests := []struct {
+		name  string
+		extra string
+		tag   string
+	}{
+		{"static clients", badInbound, "bad"},
+		{"invalid tag", badTag, "bad tag"},
+		{"duplicate tag", dup, "ws"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newSessionFixture(t, func(c *driftConfig) { c.extra = tt.extra })
+			in := f.inbound(tt.tag)
+			f.service.seed(in, "someone-else", idEntry())
+			f.service.alters = 0
+
+			files, changed, err := f.session.Prepare(newState(), tt.tag, []string{"alice"})
+			if err == nil || files != nil || changed {
+				t.Fatalf("Prepare = %v, %v, %v, want the validation error", files, changed, err)
+			}
+			if err := f.session.Apply(t.Context(), newState(), tt.tag, []string{"alice"}); err == nil {
+				t.Error("Apply error = nil, want the validation error")
+			}
+			if f.service.alters != 0 {
+				t.Errorf("AlterInbound calls = %d, want 0", f.service.alters)
+			}
+		})
+	}
+}
+
+// TestSessionApplySkipsFileThatDoesNotBuild: the file inbound changed protocol and no longer
+// builds, so nothing proves the running vless handler can take an account of the new type.
+func TestSessionApplySkipsFileThatDoesNotBuild(t *testing.T) {
+	base := newDriftConfig(t.TempDir())
+	running := runningFrom(t, base.write(t))
+	broken := base
+	broken.realityProto = "trojan"
+	broken.shortID = "zz"
+	path := broken.write(t)
+
+	service := newUserService(running)
+	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path,
+		"198.51.100.7", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := newState()
+	if _, _, err := session.Prepare(st, "reality", []string{"alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Apply(t.Context(), st, "reality", []string{"alice"}); err == nil {
+		t.Error("Apply error = nil, want the drift reason")
+	}
+	if service.alters != 0 {
+		t.Errorf("AlterInbound calls = %d, want 0", service.alters)
 	}
 }
 

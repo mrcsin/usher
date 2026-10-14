@@ -345,6 +345,11 @@ func TestCheckDriftUnusable(t *testing.T) {
 	}{
 		{"protocol change", func(c *driftConfig) { c.realityProto = "vmess" }, true},
 		{"port change", func(c *driftConfig) { c.realityPort = 8444 }, false},
+		{"file does not build", func(c *driftConfig) { c.shortID = "zz" }, true},
+		{"protocol change and file does not build", func(c *driftConfig) {
+			c.realityProto = "vmess"
+			c.shortID = "zz"
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

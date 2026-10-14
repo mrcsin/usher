@@ -20,7 +20,8 @@ import (
 )
 
 // driftError is the reason a running inbound differs from the file. unusable is true when the
-// running inbound cannot take the file's users: it is missing or runs another protocol.
+// running inbound may not take the file's users: it is missing, runs another protocol or could not
+// be compared.
 type driftError struct {
 	reason   string
 	unusable bool
@@ -31,6 +32,28 @@ func (e *driftError) Error() string { return e.reason }
 // errDoesNotBuild stands for every error of Xray's inbound Build. Xray quotes the keys and short
 // ids it rejects, so its text never reaches a reason.
 var errDoesNotBuild = errors.New("the file inbound does not build as an Xray inbound")
+
+// buildInbound builds the inbound object the way Xray does, without the certificate entries that
+// name a file, which Xray reads from its own filesystem.
+func buildInbound(raw map[string]any) (*core.InboundHandlerConfig, error) {
+	raw, err := withoutFileCertificates(raw)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the file inbound: %w", err)
+	}
+	var detour conf.InboundDetourConfig
+	if err := json.Unmarshal(encoded, &detour); err != nil {
+		return nil, errDoesNotBuild
+	}
+	built, err := detour.Build()
+	if err != nil {
+		return nil, errDoesNotBuild
+	}
+	return built, nil
+}
 
 // isManagedProxyType reports whether proxyType is the proxy settings type of a protocol the
 // backend manages.
@@ -77,11 +100,21 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 			}
 			continue
 		}
+		if live.GetProxySettings().GetType() != protocols[in.Protocol].proxyType {
+			drift[in.Tag] = &driftError{
+				reason: fmt.Sprintf("inbound %q: differs from the running Xray in %s, restart Xray to load the file",
+					in.Tag, partProxyType),
+				unusable: true,
+			}
+			continue
+		}
 		parts, err := differingParts(in, live)
 		switch {
 		case err != nil:
+			// Nothing proves the running inbound takes the file's accounts, so Apply stays away.
 			drift[in.Tag] = &driftError{
-				reason: fmt.Sprintf("inbound %q: comparing with the running Xray: %v", in.Tag, err),
+				reason:   fmt.Sprintf("inbound %q: comparing with the running Xray: %v", in.Tag, err),
+				unusable: true,
 			}
 		case len(parts) > 0:
 			drift[in.Tag] = &driftError{
@@ -105,21 +138,9 @@ const partProxyType = "proxy type"
 // differingParts returns the names of the parts of the file inbound that differ from the running
 // one: "proxy type", "proxy settings", "port", "stream settings" and "receiver settings".
 func differingParts(in Inbound, live *core.InboundHandlerConfig) ([]string, error) {
-	raw, err := withoutFileCertificates(in.Raw)
+	built, err := buildInbound(in.Raw)
 	if err != nil {
 		return nil, err
-	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("encoding the file inbound: %w", err)
-	}
-	var detour conf.InboundDetourConfig
-	if err := json.Unmarshal(encoded, &detour); err != nil {
-		return nil, errDoesNotBuild
-	}
-	built, err := detour.Build()
-	if err != nil {
-		return nil, errDoesNotBuild
 	}
 
 	var parts []string
