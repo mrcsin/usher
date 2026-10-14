@@ -182,7 +182,8 @@ drift. When the running inbound is missing, runs another protocol or cannot be c
 file, usher changes nothing on it, because an account of the wrong type crashes Xray; restart Xray.
 
 An inbound with an `x-usher` error, or one whose credential or client file cannot be built, keeps
-its old client files, and usher still removes the users who left `usher.yml` from it. It adds no
+its old client files, and usher still removes the users who left `usher.yml` from it, once the
+drift check has compared the inbound with the running Xray and found it usable. It adds no
 user and changes no credential until you fix the file. An inbound that fails any other check (port,
 `listen`, non-empty `clients`, transport, Reality keys, a tag that is not a valid interface name
 or that the file defines twice) is left alone: usher cannot trust the file entry, so it adds and

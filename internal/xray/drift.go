@@ -89,7 +89,7 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 	inFile := make(map[string]bool, len(inbounds))
 	for _, in := range inbounds {
 		inFile[in.Tag] = true
-		if in.Err != nil {
+		if in.Err != nil && !in.hintsOnly {
 			continue
 		}
 		live, ok := running[in.Tag]

@@ -99,7 +99,7 @@ func (s *Session) Interfaces() []string {
 // Prepare enrolls the users on the inbound in st and renders their client files. When the inbound
 // failed structural validation, Prepare returns the error and the pass skips Apply, so usher
 // touches no user of that tag. When only the x-usher block failed, an enrolled credential does not
-// fit the inbound or a file cannot be rendered, the running inbound is known good: Prepare keeps
+// fit the inbound or a file cannot be rendered, Prepare keeps
 // the reason and returns no error, and Apply then still revokes the users who left and returns the
 // reason, which keeps the old client files.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {

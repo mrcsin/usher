@@ -36,8 +36,8 @@ type Inbound struct {
 	Hints      Hints
 	Raw        map[string]any
 	Err        error
-	// hintsOnly is true when Err comes from the x-usher block alone: the rest of the inbound is
-	// sound, so the running inbound can be trusted to match it.
+	// hintsOnly is true when Err comes from the x-usher block alone: the rest of the inbound
+	// passed validation, so checkDrift still compares it with the running inbound.
 	hintsOnly bool
 }
 
@@ -209,8 +209,7 @@ func (in *Inbound) validate() error {
 		return fail("inbound", "does not decode as an Xray inbound")
 	}
 
-	// Last, so that a hint error is the only reason left: the inbound is sound and the running
-	// Xray can be trusted to match it.
+	// Last, so that a hint error is the only reason left and the drift check can still run.
 	if field, reason := in.readHints(stream); field != "" {
 		in.hintsOnly = true
 		return fail(field, reason)

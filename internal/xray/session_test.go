@@ -225,7 +225,7 @@ func TestSessionPrepareHysteriaPinHasNoLink(t *testing.T) {
 
 // TestSessionBrokenInboundStillRevokes covers the three ways Prepare keeps a reason instead of
 // failing: an x-usher hint error, a credential of the wrong kind and a file that cannot be
-// rendered. The running inbound is known good in each, so Apply removes the users who left.
+// rendered. The drift check finds the running inbound usable in each, so Apply removes the users who left.
 func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 	notPEM := `{"tag": "pinned", "protocol": "vless", "port": 9003,
 		"x-usher": {"trust": "pin"},
@@ -342,6 +342,53 @@ func TestSessionApplySkipsFileThatDoesNotBuild(t *testing.T) {
 	}
 	if service.alters != 0 {
 		t.Errorf("AlterInbound calls = %d, want 0", service.alters)
+	}
+}
+
+// TestSessionHintErrorStillGuardedByDrift: an x-usher hint error must not skip the drift check, so
+// Apply revokes nothing from a running inbound it could not compare with the file.
+func TestSessionHintErrorStillGuardedByDrift(t *testing.T) {
+	tests := []struct {
+		name    string
+		change  func(c *driftConfig)
+		wantErr string
+	}{
+		{"proxy type differs", func(c *driftConfig) { c.realityProto = "trojan" }, "proxy type"},
+		{"file does not build", func(c *driftConfig) { c.shortID = "zz" }, "comparing with"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := newDriftConfig(t.TempDir())
+			running := runningFrom(t, base.write(t))
+			file := base
+			tt.change(&file)
+			file.realityExtra = `"x-usher": {"adress": "x"},`
+			path := file.write(t)
+
+			service := newUserService(running)
+			dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+			session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path,
+				"198.51.100.7", slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if session.byTag["reality"].Err == nil {
+				t.Fatal("reality inbound has no hint error, the fixture is wrong")
+			}
+			service.users["reality"] = []*protocol.User{{Email: "operator-own"}}
+
+			st := newState()
+			if _, _, err := session.Prepare(st, "reality", []string{"alice"}); err != nil {
+				t.Fatal(err)
+			}
+			err = session.Apply(t.Context(), st, "reality", []string{"alice"})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Apply error = %v, want one with %q", err, tt.wantErr)
+			}
+			if service.alters != 0 {
+				t.Errorf("AlterInbound calls = %d, want 0", service.alters)
+			}
+		})
 	}
 }
 

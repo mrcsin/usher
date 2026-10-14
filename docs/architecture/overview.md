@@ -124,10 +124,10 @@ pass and every call has a 10 s deadline.
   (port, listen, clients, decryption, transport, Hysteria auth, masks, xhttp, Reality keys, a
   decode failure, an invalid or duplicate tag) is returned by `Prepare`, so the pass skips `Apply`
   and touches no user of the tag; `Apply` also returns it if called. An `x-usher` hint error, like
-  an enroll or render error, is kept by `Prepare`, which returns none: the running inbound is known
-  good, so the pass still calls `Apply`, which only removes the users who left and returns the
-  error, which keeps the old files. `validate` runs the hint check last, so a hint error is the only
-  reason left. A tag defined twice is reported once, and its entry carries the error.
+  an enroll or render error, is kept by `Prepare`, which returns none, so the pass still calls
+  `Apply`. `Apply` removes the users who left only when the drift check found the running inbound
+  usable, then returns the error, which keeps the old files. `validate` runs the hint check last,
+  so a hint error is the only reason left and `checkDrift` still compares the inbound. A tag defined twice is reported once, and its entry carries the error.
 
 ### Reading the config
 
