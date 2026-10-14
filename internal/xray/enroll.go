@@ -11,12 +11,9 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// passwordBytes is the entropy of a generated Trojan or Hysteria2 password.
 const passwordBytes = 32
 
-// enroll makes st hold a credential of the kind the inbound's protocol uses for every user in
-// users. It creates the missing ones and never changes an existing entry; an existing entry of the
-// wrong kind is an error. It reports whether it created any. On error st is left as it was.
+// enroll never changes an existing entry; one of the wrong kind is an error and leaves st as it was.
 func enroll(st *state.State, in inbound, users []string) (bool, error) {
 	spec := protocols[in.Protocol]
 	created := make(map[string]state.XrayEntry)

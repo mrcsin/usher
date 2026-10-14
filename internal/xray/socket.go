@@ -10,14 +10,10 @@ import (
 	"time"
 )
 
-// dialTimeout bounds the probe of a socket that has no lock file.
 const dialTimeout = time.Second
 
-// removeStaleSocket unlinks the API socket when no Xray listens on it. Xray holds an exclusive
-// flock on <socket>.lock while it listens, so a lock that is free means a killed Xray left the
-// socket behind and the next start would fail on it. A failed start removes the lock file, so a
-// socket without one is probed instead: a refused connection means nobody listens. A live Xray
-// accepts the probe, and its socket stays. It reports whether it removed the socket.
+// removeStaleSocket removes the socket only when the flock on <socket>.lock is free or, without
+// the lock file, the probe gets ECONNREFUSED; a live Xray keeps its socket.
 func removeStaleSocket(socketPath string) (bool, error) {
 	before, err := os.Lstat(socketPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -30,8 +26,7 @@ func removeStaleSocket(socketPath string) (bool, error) {
 		return false, fmt.Errorf("xray socket path %s is not a socket", socketPath)
 	}
 
-	// Xray creates the lock as root with mode 0644, so usher opens it read-only; flock needs no
-	// write access.
+	// Xray creates the lock as root, mode 0644: open it read-only.
 	lock, err := os.Open(socketPath + ".lock")
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -61,8 +56,7 @@ func removeStaleSocket(socketPath string) (bool, error) {
 	return true, nil
 }
 
-// connectionRefused reports whether a unix socket answers a connection with ECONNREFUSED, which is
-// what a socket file without a listener does. Any other outcome counts as live.
+// connectionRefused treats any outcome other than ECONNREFUSED as live.
 func connectionRefused(socketPath string) bool {
 	conn, err := net.DialTimeout("unix", socketPath, dialTimeout)
 	if err == nil {

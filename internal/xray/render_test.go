@@ -71,7 +71,6 @@ func TestGolden(t *testing.T) {
 					t.Fatalf("link parsed back to %d outbounds, err %v, want 1", len(round.OutboundConfigs), err)
 				}
 				if in.Hints.HopPorts != "" {
-					// A hop link names the range in its authority and parses back to its first port.
 					first, _, _ := strings.Cut(in.Hints.HopPorts, "-")
 					parsed = withPort(t, clientJSON, first)
 				}
@@ -104,9 +103,7 @@ func withPort(t *testing.T, clientJSON []byte, port string) conf.Config {
 	return cfg
 }
 
-// assertSameOutbound builds both outbounds and requires the same proxy settings (address, port, id
-// or password, flow) and the same stream settings (transport, TLS or Reality block, xhttp extra,
-// salamander, hop). The link carries no tag.
+// assertSameOutbound requires the link and the JSON to build the same proxy and stream settings.
 func assertSameOutbound(t *testing.T, fromJSON, fromLink conf.OutboundDetourConfig) {
 	t.Helper()
 	want, err := fromJSON.Build()
@@ -129,8 +126,6 @@ func assertSameOutbound(t *testing.T, fromJSON, fromLink conf.OutboundDetourConf
 	}
 }
 
-// checkGolden compares the file for suffix with testdata/golden/<tag><suffix>, or checks that it
-// is absent when want is false.
 func checkGolden(t *testing.T, files map[string][]byte, tag, suffix string, want bool) {
 	t.Helper()
 	got, present := files[clients.Path("alice", tag, suffix)]

@@ -58,9 +58,7 @@ services:
       USHER_HOST: 172.30.98.2
       USHER_XRAY_SOCKET: /run/xray/api.sock
       USHER_XRAY_CONFIG: /etc/xray/config.json
-  # Client of one user; the test writes its config to ../.e2e-xray/client/<user>/config.json. The
-  # config has one HTTP proxy inbound per tested link, and the test reaches them at the fixed
-  # address. SSL_CERT_FILE stands in for the public CA that a real certificate chains to.
+  # SSL_CERT_FILE stands in for the public CA that a real certificate chains to.
   client-alice:
     profiles: [client]
     image: ghcr.io/xtls/xray-core:26.10.10

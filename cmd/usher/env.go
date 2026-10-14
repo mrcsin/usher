@@ -16,7 +16,6 @@ const (
 	statePath   = "/srv/usher/state/users.json"
 )
 
-// environment holds the server facts from the process environment and the fixed paths.
 type environment struct {
 	pass.Settings
 	Host      netip.Addr   // USHER_HOST
@@ -70,7 +69,6 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 	}, nil
 }
 
-// parseDNS parses the comma-separated USHER_DNS list that the awg backend puts into client configs.
 func parseDNS(value string) ([]netip.Addr, error) {
 	var dns []netip.Addr
 	for _, field := range strings.Split(value, ",") {
@@ -94,7 +92,6 @@ func parseIPv4(name, value string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// parseAbsPath requires a non-empty absolute path.
 func parseAbsPath(name, value string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)

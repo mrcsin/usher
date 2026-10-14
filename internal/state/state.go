@@ -23,26 +23,22 @@ const version = 2
 
 const firstVersion = 1
 
-// backupSuffix names the copy of a version 1 file that Save makes before it writes version 2.
+// backupSuffix names the copy of a version 1 file that Save makes.
 const backupSuffix = ".v1"
 
 const fileMode = 0o600
 
-// KeyLength is the size in bytes of a private key and of a preshared key.
 const KeyLength = 32
 
-// hostBits is the prefix length of the one-address route a peer gets.
 const hostBits = 32
 
-// Key is a private or a preshared key. It is base64 in users.json.
 type Key [KeyLength]byte
 
-// MarshalText encodes the key as standard base64.
 func (k Key) MarshalText() ([]byte, error) {
 	return []byte(k.String()), nil
 }
 
-// UnmarshalText decodes standard base64 of exactly KeyLength bytes. The error never quotes text.
+// UnmarshalText decodes standard base64 of exactly KeyLength bytes. Its error never quotes text.
 func (k *Key) UnmarshalText(text []byte) error {
 	raw, err := base64.StdEncoding.DecodeString(string(text))
 	if err != nil || len(raw) != KeyLength {
@@ -52,26 +48,22 @@ func (k *Key) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// String returns the standard base64 form of the key.
 func (k Key) String() string {
 	return base64.StdEncoding.EncodeToString(k[:])
 }
 
-// Entry holds the secrets and the address of one user on one AmneziaWG interface.
 type Entry struct {
 	Address      netip.Addr `json:"address"`
 	PrivateKey   Key        `json:"private_key"`
 	PresharedKey Key        `json:"preshared_key"`
 }
 
-// PublicKey returns the X25519 public key of the private key.
 func (e Entry) PublicKey() []byte {
 	// NewPrivateKey fails only for a key that is not 32 bytes, and a Key always is.
 	key, _ := ecdh.X25519().NewPrivateKey(e.PrivateKey[:])
 	return key.PublicKey().Bytes()
 }
 
-// Route returns the one-address prefix of the entry.
 func (e Entry) Route() netip.Prefix {
 	return netip.PrefixFrom(e.Address, hostBits)
 }
@@ -119,7 +111,6 @@ type State struct {
 	Xray    map[string]XrayEntry `json:"xray"`
 }
 
-// InterfaceEntries yields the user name and the entry of every entry on the interface.
 func (s *State) InterfaceEntries(iface string) iter.Seq2[string, Entry] {
 	return func(yield func(string, Entry) bool) {
 		for name, e := range s.AWG {
@@ -166,8 +157,7 @@ func Load(path string) (*State, error) {
 	return &s, nil
 }
 
-// Save writes s to path atomically with mode 0600. When path holds a version 1 file, Save first
-// copies it to path+".v1" unless that copy exists, so a rollback is a file rename.
+// Save writes s to path atomically with mode 0600, first backing up a version 1 file to path+".v1".
 func Save(path string, s *State) error {
 	if err := backupFirstVersion(path); err != nil {
 		return err

@@ -24,15 +24,14 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// userService is a fake Xray HandlerService that keeps the users of each inbound in memory.
 type userService struct {
 	command.HandlerServiceClient
 	running    []*core.InboundHandlerConfig
-	users      map[string][]*protocol.User // tag to users
-	failAdd    map[string]bool             // emails whose AddUser fails
-	failRemove map[string]bool             // emails whose RemoveUser fails
-	listErr    error                       // answer of GetInboundUsers
-	inboundErr error                       // answer of ListInbounds
+	users      map[string][]*protocol.User
+	failAdd    map[string]bool
+	failRemove map[string]bool
+	listErr    error
+	inboundErr error
 	alters     int
 }
 
@@ -146,7 +145,7 @@ func newState() *state.State {
 
 func idEntry() state.XrayEntry { return state.XrayEntry{ID: uuid.New()} }
 
-// badInbound is an inbound that fails validation (clients are not empty) and still builds in Xray.
+// badInbound fails validation (clients are not empty) and still builds in Xray.
 const badInbound = `{"tag": "bad", "protocol": "vless", "port": 9000,
 	"settings": {"clients": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5"}], "decryption": "none"}},`
 
@@ -222,9 +221,8 @@ func TestSessionPrepareHysteriaPinHasNoLink(t *testing.T) {
 	}
 }
 
-// TestSessionBrokenInboundStillRevokes covers the three ways Prepare keeps a reason instead of
-// failing: an x-usher hint error, a credential of the wrong kind and a file that cannot be
-// rendered. The drift check finds the running inbound usable in each, so Apply removes the users who left.
+// TestSessionBrokenInboundStillRevokes: Prepare keeps a reason for a hint, enroll or render error,
+// and Apply still removes the users who left.
 func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 	notPEM := `{"tag": "pinned", "protocol": "vless", "port": 9003,
 		"x-usher": {"trust": "pin"},
@@ -278,9 +276,8 @@ func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 	}
 }
 
-// TestSessionApplyGuards: Apply changes no account when the inbound failed structural validation
-// or when nothing proves the running inbound takes the file's accounts. A hint error must not
-// skip the drift check. The running Xray holds the base config; the file holds the change.
+// TestSessionApplyGuards: Apply changes no account unless the running inbound provably takes the
+// file's accounts; a hint error must not skip the drift check.
 func TestSessionApplyGuards(t *testing.T) {
 	badTag := `{"tag": "bad tag", "protocol": "vless", "port": 9005,
 		"settings": {"clients": [], "decryption": "none"}},`
@@ -291,8 +288,8 @@ func TestSessionApplyGuards(t *testing.T) {
 		name           string
 		change         func(c *driftConfig)
 		tag            string
-		prepareFails   bool   // Prepare returns the validation error
-		wantApplyError string // "" accepts any error
+		prepareFails   bool
+		wantApplyError string
 	}{
 		{"static clients", func(c *driftConfig) { c.extra = badInbound }, "bad", true, ""},
 		{"invalid tag", func(c *driftConfig) { c.extra = badTag }, "bad tag", true, ""},
@@ -364,8 +361,8 @@ func TestSessionApply(t *testing.T) {
 		tag   string
 		setup func(f sessionFixture, st *state.State)
 		users []string
-		want  func(st *state.State) map[string]string // email to credential
-		alter int                                     // AlterInbound calls expected
+		want  func(st *state.State) map[string]string
+		alter int
 		logs  []string
 	}{
 		{
@@ -470,7 +467,6 @@ func TestSessionApply(t *testing.T) {
 
 func TestSessionApplyUnderDrift(t *testing.T) {
 	f := newSessionFixture(t, nil)
-	// The file now says a different port than the running Xray.
 	f.cfg.realityPort = 8444
 	path := f.cfg.write(t)
 	dial := func() (command.HandlerServiceClient, func(), error) { return f.service, func() {}, nil }
@@ -495,7 +491,6 @@ func TestSessionApplyUnderDrift(t *testing.T) {
 	}
 }
 
-// openWithConfig opens a session on the service for the file the config writes.
 func openWithConfig(t *testing.T, service *userService, cfg driftConfig) *Session {
 	t.Helper()
 	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }

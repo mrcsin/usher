@@ -13,7 +13,7 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// Pass runs reconcile passes. It keeps the last valid usher.yml it read.
+// Pass keeps the last valid usher.yml it read.
 type Pass struct {
 	settings Settings
 	backends []Backend
@@ -21,26 +21,22 @@ type Pass struct {
 	last     map[string][]string
 }
 
-// New returns a Pass that works with the paths in settings and moves users into backends.
 func New(settings Settings, backends []Backend, log *slog.Logger) *Pass {
 	return &Pass{settings: settings, backends: backends, log: log}
 }
 
-// openBackend is a backend with its session for this pass.
 type openBackend struct {
 	Backend
 	session Session
 }
 
-// interfaceKey identifies an interface of one backend, by the backend's index in the open list.
 type interfaceKey struct {
 	backend int
 	name    string
 }
 
-// Run executes one pass. It logs every failure and never panics on one; a failure of one
-// interface leaves the others to apply, and a backend that is down leaves the other backends to
-// apply.
+// Run executes one pass. It logs every failure; one failed interface or down backend never
+// blocks the others.
 func (p *Pass) Run(ctx context.Context) {
 	cfg, ok := p.loadConfig()
 	if !ok {
@@ -80,9 +76,6 @@ func (p *Pass) Run(ctx context.Context) {
 	p.mirrorClients(open, down, rendered, failed)
 }
 
-// prepareAll prepares every interface that exactly one backend reports. It marks a failed
-// interface in failed, and returns the rendered client files by interface and whether any
-// backend changed the state.
 func (p *Pass) prepareAll(st *state.State, open []openBackend, byInterface map[string][]string,
 	owners map[string][]string, failed map[interfaceKey]bool) (map[interfaceKey]map[string][]byte, bool) {
 	rendered := make(map[interfaceKey]map[string][]byte)
@@ -109,7 +102,6 @@ func (p *Pass) prepareAll(st *state.State, open []openBackend, byInterface map[s
 	return rendered, changed
 }
 
-// applyAll applies every interface that Prepare did not fail and marks the ones that fail now.
 func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend,
 	byInterface map[string][]string, failed map[interfaceKey]bool) {
 	for i, b := range open {
@@ -126,8 +118,7 @@ func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend
 	}
 }
 
-// mirrorClients writes the client files of the interfaces that did not fail and keeps the current
-// files of the failed interfaces and of the backends that are down.
+// mirrorClients keeps the current files of failed interfaces and of backends that are down.
 func (p *Pass) mirrorClients(open []openBackend, down []Backend,
 	rendered map[interfaceKey]map[string][]byte, failed map[interfaceKey]bool) {
 	desired := make(map[string][]byte)
@@ -147,7 +138,6 @@ func (p *Pass) mirrorClients(open []openBackend, down []Backend,
 	}
 }
 
-// openBackends opens a session for every backend and returns the backends that failed to open.
 func (p *Pass) openBackends(ctx context.Context) ([]openBackend, []Backend) {
 	var open []openBackend
 	var down []Backend
@@ -163,8 +153,6 @@ func (p *Pass) openBackends(ctx context.Context) ([]openBackend, []Backend) {
 	return open, down
 }
 
-// keepFiles copies the current client files of the backend's interfaces that keep selects into
-// desired.
 func (p *Pass) keepFiles(desired map[string][]byte, b Backend, keep func(ifaceName string) bool) {
 	kept, err := clients.Existing(p.settings.ClientsDir, b.Suffixes, keep)
 	if err != nil {
@@ -187,8 +175,6 @@ func (p *Pass) loadConfig() (map[string][]string, bool) {
 	return p.last, true
 }
 
-// interfaceOwners maps every reported interface name to the names of the backends that
-// reported it.
 func interfaceOwners(open []openBackend) map[string][]string {
 	owners := make(map[string][]string)
 	for _, b := range open {

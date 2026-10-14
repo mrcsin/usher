@@ -49,7 +49,6 @@ func start(t *testing.T, create bool, refill time.Duration, pass func(h *harness
 	return h
 }
 
-// write creates or touches the file and gives it a distinct modification time.
 func (h *harness) write(t *testing.T, n int64) {
 	t.Helper()
 	if err := os.WriteFile(h.path, []byte("a: [b]\n"), 0o600); err != nil {

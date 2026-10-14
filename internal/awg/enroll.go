@@ -15,11 +15,8 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// enroll makes st hold a valid entry for every user in users on the interface. It creates missing
-// entries (X25519 key pair, random PSK, lowest free address) and reassigns stored addresses that
-// break the allocation rules. users must be sorted: of two entries with the same address the
-// first keeps it. It reports whether any entry was created or changed. On error st is left as it
-// was.
+// enroll reports whether st changed; on error st is unchanged. users must be sorted: of two
+// entries with the same address the first keeps it.
 func enroll(log *slog.Logger, st *state.State, iface *awgv1.InterfaceStatus, users []string) (bool, error) {
 	if len(users) == 0 {
 		return false, nil
@@ -43,8 +40,7 @@ func enroll(log *slog.Logger, st *state.State, iface *awgv1.InterfaceStatus, use
 		}
 	}
 
-	// Every valid stored address is claimed before any new one is allocated, so a new user never
-	// takes the address of an existing one.
+	// Claim every stored address first, so a new user never takes an existing one's.
 	var needAddress []string
 	for _, user := range users {
 		entry := st.AWG[state.EntryName(ifaceName, user)]
@@ -100,7 +96,6 @@ func interfaceNetwork(iface *awgv1.InterfaceStatus) (netip.Prefix, map[netip.Add
 	return network, reserved, nil
 }
 
-// usable reports whether addr is a host address of prefix that nothing else holds.
 func usable(prefix netip.Prefix, reserved, taken map[netip.Addr]bool, addr netip.Addr) bool {
 	if !prefix.Contains(addr) || addr == prefix.Addr() || addr == broadcast(prefix) {
 		return false
@@ -119,7 +114,6 @@ func lowestFree(prefix netip.Prefix, reserved, taken map[netip.Addr]bool) (netip
 	return netip.Addr{}, fmt.Errorf("no free address in %s", prefix)
 }
 
-// broadcast returns the highest address of an IPv4 prefix.
 func broadcast(prefix netip.Prefix) netip.Addr {
 	network := prefix.Masked().Addr().As4()
 	hostMask := uint32(1)<<(32-prefix.Bits()) - 1

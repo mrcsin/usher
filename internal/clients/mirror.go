@@ -24,9 +24,8 @@ func Path(user, ifaceName, suffix string) string {
 	return user + "/" + ifaceName + suffix
 }
 
-// Existing returns the current content of the files in dir that end in one of suffixes and belong
-// to an interface for which keep returns true, keyed by Path. It reads as much as it can and returns
-// the errors of the rest joined.
+// Existing returns the files in dir with one of suffixes on an interface that keep accepts, keyed
+// by Path. It reads what it can and joins the errors of the rest.
 func Existing(dir string, suffixes []string, keep func(ifaceName string) bool) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	userDirs, err := os.ReadDir(dir)
@@ -62,7 +61,6 @@ func Existing(dir string, suffixes []string, keep func(ifaceName string) bool) (
 	return files, errors.Join(errs...)
 }
 
-// cutSuffixes strips the first of suffixes that name ends in and returns it.
 func cutSuffixes(name string, suffixes []string) (base, suffix string, ok bool) {
 	for _, suffix := range suffixes {
 		if base, ok := strings.CutSuffix(name, suffix); ok {
@@ -72,10 +70,8 @@ func cutSuffixes(name string, suffixes []string) (base, suffix string, ok bool) 
 	return "", "", false
 }
 
-// Mirror makes dir hold exactly the desired files. Keys of desired are slash-separated paths
-// relative to dir, such as "phone/awg0.conf". Files are written atomically with mode 0600 and
-// only when the content differs. Every other file and every empty directory is
-// removed.
+// Mirror makes dir hold exactly desired, keyed by slash-separated path relative to dir. Files are
+// written atomically with mode 0600 and only when the content differs.
 func Mirror(dir string, desired map[string][]byte) error {
 	wanted := make(map[string]bool, len(desired))
 	for rel := range desired {
@@ -94,8 +90,6 @@ func Mirror(dir string, desired map[string][]byte) error {
 	return nil
 }
 
-// removeUnwanted deletes every non-directory entry under dir that is not wanted, then every
-// directory left empty. dir itself stays.
 func removeUnwanted(dir string, wanted map[string]bool) error {
 	var dirs []string
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {

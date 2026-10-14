@@ -12,8 +12,7 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// render returns the client config of one user on one interface. The error never quotes a
-// client_params value.
+// render never quotes a client_params value in its errors.
 func render(entry state.Entry, iface *awgv1.InterfaceStatus, host netip.Addr, dns []netip.Addr) ([]byte, error) {
 	port := iface.GetListenPort()
 	if port > math.MaxUint16 {

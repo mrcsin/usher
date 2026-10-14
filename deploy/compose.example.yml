@@ -12,7 +12,6 @@ services:
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
     ports:
-      # Publish the UDP port of every interface 1:1.
       - "51820:51820/udp"
     volumes:
       # One <interface>.conf per interface, [Interface] only.
@@ -22,8 +21,7 @@ services:
       # Must equal usher's group.
       AWG_GRPC_SOCKET_GID: "1000"
   xray:
-    # The tag follows the xray-core version in usher's go.mod. A different version can change how
-    # Xray builds an inbound, and usher then reports every inbound as drifted.
+    # Match the xray-core version in usher's go.mod, or usher may report every inbound as drifted.
     image: ghcr.io/xtls/xray-core:26.10.10
     restart: unless-stopped
     # Must equal usher's group, so that usher can open the API socket.
@@ -38,9 +36,7 @@ services:
       # The certificates and keys that the config names. Only Xray mounts them: usher needs no
       # access to a key file, and Xray reloads the files itself.
       - ./xray-certs:/etc/xray-certs:ro
-      # A host directory that uid 1000 owns (create it before the first start), not a named volume,
-      # which belongs to root: after a crash usher unlinks the stale API socket, and that needs
-      # write access to the directory.
+      # Owned by uid 1000, not a named volume: usher unlinks a stale API socket after a crash.
       - ./xray-sock:/run/xray
   usher:
     image: ghcr.io/mrcsin/usher:v0.1.0
