@@ -13,7 +13,6 @@ import (
 	"strings"
 )
 
-// The inbounds of the server config; usher.yml names them as interfaces.
 const (
 	tagHysteria = "hy2"
 	tagReality  = "vless-reality"
@@ -21,7 +20,7 @@ const (
 	tagWS       = "vless-ws"
 )
 
-// tags lists the inbounds. The order fixes the proxy port of each route.
+// The order of tags fixes the proxy port of each route.
 var tags = []string{tagHysteria, tagReality, tagXHTTP, tagWS}
 
 const (
@@ -33,15 +32,11 @@ const (
 	driftShortID   = "cd34"
 )
 
-// Where the files the server config names sit, relative to the config directory that
-// Xray mounts at /etc/xray.
 const (
 	wsCertFile = "certs/ws.pem"
 	wsKeyFile  = "certs/ws.key"
 )
 
-// server holds what the generated server config needs: the Reality key and the leaves of the
-// inline certificates.
 type server struct {
 	realityPrivateKey string
 	hysteria, xhttp   leaf
@@ -62,7 +57,7 @@ func newServer(ca *authority) (*server, error) {
 	return s, nil
 }
 
-// pemLines splits a PEM block into the line list that Xray takes for an inline certificate.
+// pemLines returns the line list Xray takes for an inline certificate.
 func pemLines(data []byte) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
@@ -75,7 +70,6 @@ func inlineCertificate(l leaf, serverName string, alpn ...string) map[string]any
 	}
 }
 
-// config renders the server config with the four inbounds and the given Reality shortId.
 func (s *server) config(shortID string) ([]byte, error) {
 	usherBlock := map[string]any{"address": serverAddress}
 	inbound := func(tag string, port int, protocol string, settings, stream map[string]any) map[string]any {
@@ -154,7 +148,6 @@ func (s *server) config(shortID string) ([]byte, error) {
 	return json.MarshalIndent(config, "", "  ")
 }
 
-// writeConfig replaces config.json in the mounted config directory.
 func (s *server) writeConfig(dir, shortID string) error {
 	data, err := s.config(shortID)
 	if err != nil {
@@ -163,7 +156,6 @@ func (s *server) writeConfig(dir, shortID string) error {
 	return replaceFile(filepath.Join(dir, "config.json"), data)
 }
 
-// writeWSCertificate replaces the certificate and key files of the ws inbound.
 func (s *server) writeWSCertificate(dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(wsCertFile)), 0o755); err != nil {
 		return err
@@ -174,7 +166,7 @@ func (s *server) writeWSCertificate(dir string) error {
 	return replaceFile(filepath.Join(dir, wsCertFile), s.ws.cert)
 }
 
-// replaceFile writes data next to path and renames it over path, so no reader sees half a file.
+// replaceFile renames a temporary file over path, so no reader sees half a file.
 func replaceFile(path string, data []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {

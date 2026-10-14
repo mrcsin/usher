@@ -17,9 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// driftError is the reason a running inbound differs from the file. unusable is true when the
-// running inbound may not take the file's users: it is missing, runs another protocol or could not
-// be compared.
+// driftError is unusable when the running inbound is missing, of another protocol or not comparable.
 type driftError struct {
 	reason   string
 	unusable bool
@@ -27,9 +25,7 @@ type driftError struct {
 
 func (e *driftError) Error() string { return e.reason }
 
-// buildInbound builds the inbound object the way Xray does, without the certificate entries that
-// name a file, which Xray reads from its own filesystem. Xray quotes the keys and short ids it
-// rejects, so the error of its decode or Build never reaches a reason.
+// buildInbound drops file certificates; its decode errors quote keys, so they never reach a reason.
 func buildInbound(raw map[string]any) (*core.InboundHandlerConfig, error) {
 	detour, err := decodeInbound(withoutFileCertificates(raw))
 	if err != nil {
@@ -42,8 +38,6 @@ func buildInbound(raw map[string]any) (*core.InboundHandlerConfig, error) {
 	return built, nil
 }
 
-// isManagedProxyType reports whether proxyType is the proxy settings type of a protocol the
-// backend manages.
 func isManagedProxyType(proxyType string) bool {
 	for _, spec := range protocols {
 		if spec.proxyType == proxyType {
@@ -53,15 +47,8 @@ func isManagedProxyType(proxyType string) bool {
 	return false
 }
 
-// checkDrift compares every inbound of the file that passed structural validation, hint errors
-// included, with the inbound of the same tag in the running Xray. The result maps a tag to the
-// reason its running inbound differs from the file or is missing; a tag without an entry matches.
-// A mismatch means Xray runs an older file, so the client files for the tag are not trustworthy
-// until Xray restarts.
-//
-// Certificate entries that name a file are left out on both sides: Xray reloads those files
-// itself, so a changed file is no drift. A reason names the differing parts and never a
-// value. Running inbounds of a managed protocol that the file does not define are logged.
+// checkDrift maps a tag to why its running inbound differs from the file; a mismatch means the
+// client files are untrustworthy until Xray restarts. A reason never quotes a value.
 func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *slog.Logger,
 	inbounds []inbound) (map[string]error, error) {
 	resp, err := client.ListInbounds(ctx, &command.ListInboundsRequest{})
@@ -122,9 +109,6 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 
 const partProxyType = "proxy type"
 
-// differingParts returns the names of the parts of the file inbound that differ from the running
-// one: "proxy settings", "port", "stream settings" and "receiver settings". The caller has
-// checked that both run the same proxy type.
 func differingParts(in inbound, live *core.InboundHandlerConfig) ([]string, error) {
 	built, err := buildInbound(in.Raw)
 	if err != nil {
@@ -179,7 +163,6 @@ func equalMessages(a, b *serial.TypedMessage) (bool, error) {
 	return proto.Equal(left, right), nil
 }
 
-// receiver unpacks the receiver settings into a fresh message the caller may modify.
 func receiver(handler *core.InboundHandlerConfig) (*proxyman.ReceiverConfig, error) {
 	instance, err := handler.GetReceiverSettings().GetInstance()
 	if err != nil {
@@ -194,8 +177,6 @@ func receiver(handler *core.InboundHandlerConfig) (*proxyman.ReceiverConfig, err
 
 var tlsConfigType = string((&tls.Config{}).ProtoReflect().Descriptor().FullName())
 
-// dropPathCertificates removes the certificates that Xray loads from a file from the TLS settings
-// of stream.
 func dropPathCertificates(stream *internet.StreamConfig) error {
 	for i, settings := range stream.GetSecuritySettings() {
 		if settings.GetType() != tlsConfigType {
@@ -214,8 +195,6 @@ func dropPathCertificates(stream *internet.StreamConfig) error {
 	return nil
 }
 
-// withoutFileCertificates returns a copy of an inbound object without the tlsSettings certificate
-// entries that name a file.
 func withoutFileCertificates(raw map[string]any) map[string]any {
 	clone := deepCopy(raw).(map[string]any)
 	tlsSettings := object(object(clone["streamSettings"])["tlsSettings"])

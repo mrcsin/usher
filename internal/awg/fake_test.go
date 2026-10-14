@@ -8,7 +8,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-// fakeClient implements awgv1.ManagementServiceClient with func fields and records requests.
 type fakeClient struct {
 	status func() (*awgv1.GetStatusResponse, error)
 	apply  func(*awgv1.ApplyPeersRequest) (*awgv1.ApplyPeersResponse, error)

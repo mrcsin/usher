@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	// repoDir is the repository root relative to this package; go test runs in the package dir.
 	repoDir       = "../../.."
 	composeFile   = "deploy/compose.e2e-xray.yml"
 	clientProfile = "client"
-	// helperImage is the image of the compose file that has a shell, kill and pidof.
+	// helperImage has a shell, kill and pidof.
 	helperImage = "nginx:1.27-alpine"
 
 	// The deadlines follow the production constants: 3 s file poll, 500 ms settle, 30 s refill.
@@ -33,13 +32,11 @@ const (
 	restartTimeout = 45 * time.Second
 	killTimeout    = 90 * time.Second
 	// refillTick is a little longer than the 30 s refill interval.
-	refillTick = 35 * time.Second
-	// failedRounds is the number of consecutive failed rounds that prove a user is off.
+	refillTick   = 35 * time.Second
 	failedRounds = 3
 	pollInterval = 500 * time.Millisecond
 )
 
-// The bind-mount directories of the compose project, under scratchRoot.
 const (
 	scratchRoot = ".e2e-xray"
 	configDir   = "config"
@@ -54,17 +51,15 @@ type composeProject struct{}
 
 var (
 	project composeProject
-	// ca and srv are the fixtures that TestMain generates before the containers start.
-	ca  *authority
-	srv *server
+	ca      *authority
+	srv     *server
 )
 
 func (composeProject) path(elem ...string) string {
 	return filepath.Join(append([]string{repoDir, scratchRoot}, elem...)...)
 }
 
-// cmd builds docker compose on the project, run from the repository root with the uid and gid of
-// the test user, so usher can write the bind mounts and open the socket.
+// cmd runs with the uid and gid of the test user, so usher can write the bind mounts.
 func (composeProject) cmd(args ...string) *exec.Cmd {
 	cmd := exec.Command("docker", append([]string{"compose", "-f", composeFile}, args...)...)
 	cmd.Dir = repoDir
@@ -74,7 +69,6 @@ func (composeProject) cmd(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// compose runs docker compose on the project and returns its stdout; a failure ends the test.
 func (p composeProject) compose(t *testing.T, args ...string) string {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -104,10 +98,8 @@ func TestMain(m *testing.M) {
 	os.Exit(runSuite(m))
 }
 
-// runSuite creates the bind-mount directories as the test user, so dockerd does not create them as
-// root and usher, which runs as the test user, can write them. It writes the server config and the
-// CA before the containers start. A run that was killed leaves the project up, so it takes the
-// project down first.
+// runSuite creates the bind mounts as the test user, not root, and first takes down a project
+// that a killed run left up.
 func runSuite(m *testing.M) int {
 	flag.Parse()
 	if count := flag.Lookup("test.count").Value.String(); count != "1" {
@@ -164,8 +156,6 @@ func writeFixtures() error {
 	return srv.writeConfig(project.path(xrayDir), realityShortID)
 }
 
-// waitFor runs check until it returns nil or the timeout passes; then it ends the test with the
-// last error.
 func waitFor(t *testing.T, timeout time.Duration, what string, check func() error) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -205,7 +195,6 @@ func logsSince(t *testing.T, mark logMark) string {
 	return logs[mark:]
 }
 
-// waitForLog waits until a line of the usher log after the mark matches the pattern.
 func waitForLog(t *testing.T, mark logMark, timeout time.Duration, pattern string) {
 	t.Helper()
 	re := regexp.MustCompile(pattern)
@@ -225,7 +214,6 @@ func usherYAML(users ...string) string {
 	return b.String()
 }
 
-// writeUsherConfig replaces config/usher.yml atomically.
 func writeUsherConfig(t *testing.T, users ...string) {
 	t.Helper()
 	if err := replaceFile(project.path(configDir, "usher.yml"), []byte(usherYAML(users...))); err != nil {
@@ -233,8 +221,6 @@ func writeUsherConfig(t *testing.T, users ...string) {
 	}
 }
 
-// startClient writes the client config of the user from the rendered files and starts or restarts
-// the user's container, so no earlier connection survives.
 func startClient(t *testing.T, user string) {
 	t.Helper()
 	waitForClientFiles(t, user, changeTimeout)
@@ -242,8 +228,7 @@ func startClient(t *testing.T, user string) {
 	project.compose(t, "--profile", clientProfile, "up", "-d", "--force-recreate", "client-"+user)
 }
 
-// assertOffRepeatedly requires several consecutive rounds in which no route of the user works, so
-// one transient error cannot stand for a removed user.
+// assertOffRepeatedly requires several rounds with no working route, so one error is not a removal.
 func assertOffRepeatedly(t *testing.T, user string, among []route) {
 	t.Helper()
 	waitFor(t, connectTimeout, "the proxies of the client of "+user, func() error {
@@ -257,17 +242,15 @@ func assertOffRepeatedly(t *testing.T, user string, among []route) {
 	}
 }
 
-// removedLine matches the usher log line that reports the removal of a user from an inbound.
 func removedLine(tag, user string) string {
 	return fmt.Sprintf(`users changed" interface=%s .*removed="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
 }
 
-// addedLine matches the usher log line that reports the addition of a user to an inbound.
 func addedLine(tag, user string) string {
 	return fmt.Sprintf(`users changed" interface=%s added="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
 }
 
-// TestXray runs its subtests in order; each one starts from the state the previous one left.
+// TestXray runs its subtests in order; each starts from the state the previous one left.
 func TestXray(t *testing.T) {
 	steps := []struct {
 		name string
@@ -287,8 +270,6 @@ func TestXray(t *testing.T) {
 	}
 }
 
-// testConnect writes a config of two users, builds a client from the rendered files of each and
-// fetches the target page through every .json and .txt.
 func testConnect(t *testing.T) {
 	waitFor(t, changeTimeout, "the API socket of xray", func() error {
 		_, err := os.Stat(project.path(sockDir, "api.sock"))
@@ -332,8 +313,7 @@ func testRestart(t *testing.T) {
 	assertOffRepeatedly(t, "bob", routes())
 }
 
-// testHardKill kills the xray process with SIGKILL, which leaves its socket behind. The restart policy starts
-// xray again, it cannot bind the stale socket, and usher unlinks the socket at its next tick.
+// testHardKill leaves a stale socket; the restarted xray cannot bind it until usher unlinks it.
 func testHardKill(t *testing.T) {
 	mark := markLogs(t)
 	killXray(t)
@@ -346,9 +326,8 @@ func testHardKill(t *testing.T) {
 	assertOffRepeatedly(t, "bob", routes())
 }
 
-// killXray sends SIGKILL to the Xray process from a helper container in the PID namespace of the
-// xray container. The container exits with status 137, as after a crash or an OOM kill, so the
-// restart policy applies.
+// killXray sends SIGKILL from a helper container in the PID namespace of xray; exit status 137
+// triggers the restart policy.
 func killXray(t *testing.T) {
 	t.Helper()
 	id := strings.TrimSpace(project.compose(t, "ps", "-q", "xray"))
@@ -362,9 +341,8 @@ func killXray(t *testing.T) {
 	}
 }
 
-// testDrift changes shortIds in the mounted config without restarting xray. The reality inbound
-// must fail with a drift reason at the next tick, the other inbounds must not, and a user removed
-// from usher.yml while the drift is present must still be removed from xray.
+// testDrift changes shortIds without restarting xray: only the reality inbound reports drift, and
+// a removal during the drift still reaches xray.
 func testDrift(t *testing.T) {
 	mark := markLogs(t)
 	writeUsherConfig(t, "alice", "bob")
@@ -412,9 +390,7 @@ func testDrift(t *testing.T) {
 	assertNoFailureSince(t, mark, "the drift was undone")
 }
 
-// assertNoFailureSince fails the test when usher logged a failed interface, a backend that is down
-// or any error after the mark. The caller first makes usher log a change, which proves that a
-// pass ran: a pass that succeeds logs nothing else.
+// assertNoFailureSince needs a logged change first: a successful pass logs nothing else.
 func assertNoFailureSince(t *testing.T, mark logMark, what string) {
 	t.Helper()
 	time.Sleep(2 * time.Second) // the pass that logged the change finishes its other inbounds
@@ -426,7 +402,6 @@ func assertNoFailureSince(t *testing.T, mark logMark, what string) {
 	}
 }
 
-// failedInterfaces returns the interface of every "interface failed" line of the log.
 func failedInterfaces(logs string) []string {
 	var failed []string
 	for _, match := range regexp.MustCompile(`interface failed" backend=xray interface=(\S+)`).FindAllStringSubmatch(logs, -1) {

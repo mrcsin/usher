@@ -13,18 +13,14 @@ import (
 )
 
 const (
-	// JSONSuffix is the suffix of the client config usher writes for an inbound.
 	JSONSuffix = ".json"
-	// LinkSuffix is the suffix of the share link usher writes for an inbound.
 	LinkSuffix = ".txt"
 
 	localSocksPort = 10808
 	localHTTPPort  = 10809
 )
 
-// renderJSON returns the complete client config for the outbound: the outbound plus a local socks
-// and http proxy. The outbound must build as an Xray outbound, so a shape Xray itself refuses never
-// reaches a client.
+// renderJSON fails on an outbound Xray itself refuses to build, so no client gets one.
 func renderJSON(outbound map[string]any) ([]byte, error) {
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -58,7 +54,6 @@ func renderJSON(outbound map[string]any) ([]byte, error) {
 	return append(out, '\n'), nil
 }
 
-// renderLink returns the share link of the client config, one line with a trailing newline.
 func renderLink(clientJSON []byte) ([]byte, error) {
 	link, err := share.ConvertXrayJsonToShareLinks(clientJSON)
 	if err != nil {
@@ -67,9 +62,7 @@ func renderLink(clientJSON []byte) ([]byte, error) {
 	return []byte(link + "\n"), nil
 }
 
-// renderFiles returns the client files of one user on the inbound, keyed by clients.Path: always
-// the .json, and the .txt unless no client reads its link. A link libxray refuses is a
-// defect of usher, which builds only shapes libxray knows; it is logged and the .json stays.
+// renderFiles keeps the .json when libxray refuses the link: that is a usher defect, logged.
 func renderFiles(log *slog.Logger, in inbound, host, user string, entry state.XrayEntry) (map[string][]byte, error) {
 	outbound, err := clientOutbound(in, host, entry)
 	if err != nil {

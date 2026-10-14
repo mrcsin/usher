@@ -23,15 +23,12 @@ type Intervals struct {
 	Refill time.Duration
 }
 
-// New returns a Watcher of the file at path.
 func New(path string, intervals Intervals, pass func(context.Context)) *Watcher {
 	return &Watcher{path: path, intervals: intervals, pass: pass}
 }
 
-// Run blocks until ctx is done. A missing file is not an error: the pass reports it, and the
-// file triggers a pass once it appears. One goroutine does everything. A tick that fires during a
-// pass waits in its ticker, which buffers one tick, so each source yields at most one following
-// pass.
+// Run blocks until ctx is done. A missing file is not an error, and a tick that fires during a
+// pass yields at most one following pass.
 func (w *Watcher) Run(ctx context.Context) {
 	last, _ := w.modTime()
 	w.pass(ctx)

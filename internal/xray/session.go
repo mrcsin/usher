@@ -17,32 +17,23 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// callTimeout bounds each call to Xray.
 const callTimeout = 10 * time.Second
 
-// Dial opens a connection to the Xray API. It returns the client and the function that closes the
-// connection.
 type Dial func() (command.HandlerServiceClient, func(), error)
 
-// Session is one pass's view of Xray: the managed inbounds of the config file and the drift of
-// each against the running Xray.
 type Session struct {
 	client    command.HandlerServiceClient
 	closeConn func()
 	inbounds  []inbound
 	byTag     map[string]inbound
 	drift     map[string]error
-	// broken maps a tag whose accounts and client files cannot be built this pass to the reason.
-	// Apply only revokes users on such a tag.
+	// broken maps a tag whose accounts or client files cannot be built to the reason.
 	broken map[string]error
 	host   string
 	log    *slog.Logger
 }
 
-// Open reads the Xray config at configPath, connects to the API and checks every inbound of the
-// file against the running Xray. host is the address clients dial unless an inbound sets one. When
-// socketPath is a stale socket of a killed Xray, Open removes it and fails, so the pass reports Xray
-// down and the restart policy can start Xray again.
+// Open removes a stale socket left by a killed Xray and fails the pass.
 func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, log *slog.Logger) (*Session, error) {
 	inbounds, err := readConfig(configPath)
 	if err != nil {
@@ -83,9 +74,7 @@ func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, l
 	}, nil
 }
 
-// Interfaces returns the tag of every managed inbound of the file, valid or not, so a tag that
-// fails keeps its client files. A tag the file defines twice appears once; its entry carries the
-// error.
+// Interfaces includes invalid tags, so their client files are kept.
 func (s *Session) Interfaces() []string {
 	tags := make([]string, 0, len(s.byTag))
 	for _, in := range s.inbounds {
@@ -96,12 +85,8 @@ func (s *Session) Interfaces() []string {
 	return tags
 }
 
-// Prepare enrolls the users on the inbound in st and renders their client files. When the inbound
-// failed structural validation, Prepare returns the error and the pass skips Apply, so usher
-// touches no user of that tag. When only the x-usher block failed, an enrolled credential does not
-// fit the inbound or a file cannot be rendered, Prepare keeps the reason and returns no error, and
-// Apply then still revokes the users who left and returns the reason, which keeps the old client
-// files.
+// Prepare returns structural errors; for a hint, enroll or render error it returns nil and
+// Apply only revokes.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
 	in := s.byTag[name]
 	if in.Err != nil {
@@ -128,11 +113,8 @@ func (s *Session) Prepare(st *state.State, name string, users []string) (map[str
 	return files, changed, nil
 }
 
-// Apply makes the inbound hold exactly the users, then returns the error of the tag, if any: the
-// reason Prepare kept, else the drift. Users are reconciled even under most drift, so a revoked
-// user loses access. When the running inbound is missing or runs another protocol, Apply changes
-// nothing, because an account of the wrong type crashes Xray. It also changes nothing when the
-// inbound failed structural validation. When Prepare kept a reason, Apply only removes users.
+// Apply never touches a tag whose running inbound is missing or runs another protocol: an
+// account of the wrong type crashes Xray.
 func (s *Session) Apply(ctx context.Context, st *state.State, name string, users []string) error {
 	if in := s.byTag[name]; in.Err != nil && !in.hintsOnly {
 		return in.Err
@@ -148,19 +130,15 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 	return errors.Join(s.reconcile(ctx, st, s.byTag[name], users), drift)
 }
 
-// Close closes the connection to Xray.
 func (s *Session) Close() {
 	s.closeConn()
 }
 
-// userChanges is what reconcile did to an inbound, by email.
 type userChanges struct {
 	added, removed, updated []string
 }
 
-// reconcile lists the users of the inbound, removes foreign and changed ones, adds missing and
-// changed ones, and logs the difference. It tries every operation and joins the errors, so one
-// failure does not hold back a removal; the next pass converges from the listed state.
+// reconcile joins the errors, so one failure never blocks a removal.
 func (s *Session) reconcile(ctx context.Context, st *state.State, in inbound, users []string) error {
 	desired := make(map[string]*serial.TypedMessage, len(users))
 	credentials := make(map[string]string, len(users))
@@ -214,7 +192,7 @@ func (s *Session) reconcile(ctx context.Context, st *state.State, in inbound, us
 			changes.added = append(changes.added, email)
 		}
 	}
-	// A changed credential whose new account was refused left the user without access.
+	// A changed credential whose new account was refused leaves the user without access.
 	changes.removed = append(changes.removed, slices.Sorted(maps.Keys(replaced))...)
 	s.logChanges(in.Tag, changes)
 	if err := errors.Join(errs...); err != nil {
@@ -223,8 +201,7 @@ func (s *Session) reconcile(ctx context.Context, st *state.State, in inbound, us
 	return nil
 }
 
-// revoke removes every user of the inbound whose email is not one of users, and touches no other
-// account. It serves an inbound whose accounts cannot be built.
+// revoke only removes users, so it is safe on an inbound whose accounts cannot be built.
 func (s *Session) revoke(ctx context.Context, tag string, users []string) error {
 	keep := make(map[string]bool, len(users))
 	for _, user := range users {
@@ -282,7 +259,6 @@ func (s *Session) listUsers(ctx context.Context, tag string) ([]*protocol.User, 
 	return resp.GetUsers(), nil
 }
 
-// liveCredentials maps the email of every user of the inbound to the credential of its account.
 func (s *Session) liveCredentials(ctx context.Context, in inbound) (map[string]string, error) {
 	users, err := s.listUsers(ctx, in.Tag)
 	if err != nil {

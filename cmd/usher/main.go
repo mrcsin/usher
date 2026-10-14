@@ -84,8 +84,7 @@ func xrayBackend(env environment, log *slog.Logger) pass.Backend {
 	}
 }
 
-// asSession converts a backend session to pass.Session. On error it returns a nil interface, not
-// an interface that holds a nil pointer.
+// asSession returns a nil interface on error, not an interface holding a nil pointer.
 func asSession[S pass.Session](session S, err error) (pass.Session, error) {
 	if err != nil {
 		return nil, err
@@ -93,7 +92,6 @@ func asSession[S pass.Session](session S, err error) (pass.Session, error) {
 	return session, nil
 }
 
-// dialUnix returns a dial function that opens a gRPC client over the unix socket at path.
 func dialUnix[C any](path string, newClient func(grpc.ClientConnInterface) C) func() (C, func(), error) {
 	target := "unix://" + path
 	return func() (C, func(), error) {

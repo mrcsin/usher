@@ -18,8 +18,6 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// fakeSession is a Session that renders "new <interface>" into one file per user and suffix and
-// enrolls a state entry the first time an interface has users.
 type fakeSession struct {
 	names    []string
 	suffixes []string

@@ -1,8 +1,7 @@
 //go:build e2e
 
-// Package e2e drives usher against the published awg-grpc image through deploy/compose.e2e.yml
-// and the host amneziawg module. It needs Docker with compose and the module loaded; AGENTS.md,
-// Test, runs it.
+// Package e2e drives usher against the awg-grpc image through deploy/compose.e2e.yml. It needs
+// Docker with compose and the host amneziawg module; AGENTS.md, Test, runs it.
 package e2e
 
 import (
@@ -25,7 +24,6 @@ import (
 )
 
 const (
-	// repoDir is the repository root relative to this package; go test runs in the package dir.
 	repoDir       = "../.."
 	composeFile   = "deploy/compose.e2e.yml"
 	iface         = "awge2e0"
@@ -38,7 +36,6 @@ const (
 	refillTimeout = 60 * time.Second
 )
 
-// The bind-mount directories of the compose project, under scratchRoot.
 const (
 	scratchRoot = ".e2e"
 	configDir   = "config"
@@ -63,16 +60,14 @@ func usherYAML(users ...string) string {
 	return b.String()
 }
 
-// peerSet maps the public key of a peer, base64, to its allowed IPs.
 type peerSet map[string]string
 
 func TestMain(m *testing.M) {
 	os.Exit(runMain(m))
 }
 
-// runMain creates the bind-mount directories as the test user, so dockerd does not create them
-// as root and usher, which runs as the test user, can write them. A run that was killed leaves
-// the project up, so runMain takes it down before it starts.
+// runMain creates the bind mounts as the test user, not root, and first takes down a project
+// that a killed run left up.
 func runMain(m *testing.M) int {
 	flag.Parse()
 	if count := flag.Lookup("test.count").Value.String(); count != "1" {
@@ -118,8 +113,7 @@ func printLogs() {
 	fmt.Fprintf(os.Stderr, "docker compose logs (err %v):\n%s\n", err, out)
 }
 
-// composeCmd builds docker compose on the e2e project, run from the repository root with the
-// uid and gid of the test user, so usher can write the bind mounts and open the socket.
+// composeCmd runs with the uid and gid of the test user, so usher can write the bind mounts.
 func composeCmd(args ...string) *exec.Cmd {
 	cmd := exec.Command("docker", append([]string{"compose", "-f", composeFile}, args...)...)
 	cmd.Dir = repoDir
@@ -146,7 +140,7 @@ func compose(t *testing.T, args ...string) string {
 	return stdout
 }
 
-// TestE2E runs its subtests in order; each one starts from the state the previous one left.
+// TestE2E runs its subtests in order; each starts from the state the previous one left.
 func TestE2E(t *testing.T) {
 	steps := []struct {
 		name string
@@ -193,10 +187,8 @@ func testEnroll(t *testing.T) {
 	waitPeers(t, deadline, want)
 }
 
-// testHandshake proves that a copy of the phone's client config completes a handshake with the
-// interface from a second container. The config differs from the original in two lines, as in
-// awg-grpc's smoke test: the image has no resolvconf for DNS, and a full-tunnel AllowedIPs needs
-// sysctl writes a non-privileged container cannot make.
+// testHandshake drops DNS (the image has no resolvconf) and narrows AllowedIPs (full tunnel needs
+// sysctl writes), as awg-grpc's smoke test does.
 func testHandshake(t *testing.T) {
 	original, err := os.ReadFile(e2ePath(clientsDir, "phone", iface+".conf"))
 	if err != nil {
@@ -293,10 +285,8 @@ func testSwitchOff(t *testing.T) {
 	})
 }
 
-// testBrokenFileAndRefill writes a file with a YAML syntax error and, once usher has logged the
-// error, restarts the awg service, which empties its interfaces. usher must refill them from the
-// last valid file on its refill ticker and keep clients/ as it was. The log line of the refill
-// pass proves the restart emptied the kernel: its added list names both users.
+// testBrokenFileAndRefill checks that usher refills a restarted awg from the last valid file.
+// The added list of the refill log line names both users, which proves the kernel was empty.
 func testBrokenFileAndRefill(t *testing.T) {
 	defer writeUsherConfig(t, bothUsers)
 
@@ -367,7 +357,6 @@ func writeUsherConfig(t *testing.T, content string) {
 	}
 }
 
-// checkClientFile reports why clients/<user>/<iface>.conf is not a mode 0600 file yet.
 func checkClientFile(user string) error {
 	info, err := os.Stat(e2ePath(clientsDir, user, iface+".conf"))
 	if err != nil {
@@ -414,7 +403,6 @@ func publicKey(e state.Entry) string {
 	return base64.StdEncoding.EncodeToString(e.PublicKey())
 }
 
-// dumpPeer is one peer line of awg show dump.
 type dumpPeer struct {
 	allowedIPs string
 	handshake  int64
@@ -430,8 +418,7 @@ func (d dumpSet) allowed() peerSet {
 	return set
 }
 
-// dump reads the peers of the interface from the wrapper container. The preshared key column is
-// never kept.
+// dump never keeps the preshared key column.
 func dump() (dumpSet, error) {
 	stdout, stderr, err := run(composeCmd("exec", "-T", "awg", "awg", "show", iface, "dump"))
 	if err != nil {
@@ -439,7 +426,6 @@ func dump() (dumpSet, error) {
 	}
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	peers := dumpSet{}
-	// The first line is the interface itself.
 	for _, line := range lines[1:] {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 5 {

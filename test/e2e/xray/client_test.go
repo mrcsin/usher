@@ -28,14 +28,12 @@ const (
 	requestTimeout = 5 * time.Second
 )
 
-// proxyHosts maps each user to the address of that user's client container.
 var proxyHosts = map[string]string{
 	"alice": "172.30.98.11",
 	"bob":   "172.30.98.12",
 }
 
-// route is one way to reach the target: the client file of a user for an inbound, either the
-// rendered .json config or the .txt share link. Each route has its own proxy port on the client.
+// route is the .json config or .txt share link of a user for an inbound, with its own proxy port.
 type route struct {
 	tag  string
 	form string
@@ -46,7 +44,6 @@ func (r route) String() string { return r.tag + r.formSuffix() }
 
 func (r route) formSuffix() string { return "." + r.form }
 
-// routes lists a route for every inbound and form, in the port order of the client config.
 func routes() []route {
 	var all []route
 	for _, tag := range tags {
@@ -67,9 +64,7 @@ func routesOf(tag string) []route {
 	return among
 }
 
-// writeClientConfig builds the Xray client config of a user from the rendered files of every
-// inbound: one outbound and one HTTP proxy inbound per route. The test only adds useSystemCA to
-// the TLS settings, so the client trusts SSL_CERT_FILE.
+// writeClientConfig only adds useSystemCA, so the client trusts SSL_CERT_FILE.
 func writeClientConfig(t *testing.T, user string) {
 	t.Helper()
 	var inbounds, outbounds, rules []any
@@ -108,7 +103,6 @@ func writeClientConfig(t *testing.T, user string) {
 	}
 }
 
-// routeOutbound returns the outbound that the rendered file of the route defines.
 func routeOutbound(user string, r route) (map[string]any, error) {
 	data, err := os.ReadFile(project.path(clientsDir, user, r.tag+r.formSuffix()))
 	if err != nil {
@@ -132,7 +126,6 @@ func routeOutbound(user string, r route) (map[string]any, error) {
 	return config.Outbounds[0], nil
 }
 
-// nested returns the object at the path of keys, or nil when any step is missing.
 func nested(object map[string]any, keys ...string) map[string]any {
 	for _, key := range keys {
 		next, ok := object[key].(map[string]any)
@@ -144,8 +137,6 @@ func nested(object map[string]any, keys ...string) map[string]any {
 	return object
 }
 
-// waitForClientFiles waits until usher has written the .json and .txt of the user for every
-// inbound.
 func waitForClientFiles(t *testing.T, user string, timeout time.Duration) {
 	t.Helper()
 	waitFor(t, timeout, "client files of "+user, func() error {
@@ -163,8 +154,6 @@ func waitForClientFiles(t *testing.T, user string, timeout time.Duration) {
 	})
 }
 
-// fetch requests the target page through the proxy of the route and reports why the request did
-// not return the page with status 200.
 func fetch(user string, r route) error {
 	proxy, err := url.Parse("http://" + net.JoinHostPort(proxyHosts[user], strconv.Itoa(r.port)))
 	if err != nil {
@@ -192,7 +181,6 @@ func fetch(user string, r route) error {
 	return nil
 }
 
-// fetchAll fetches through the given routes of a user at once and returns the error of each.
 func fetchAll(user string, among []route) map[route]error {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -211,7 +199,6 @@ func fetchAll(user string, among []route) map[route]error {
 	return results
 }
 
-// allWork returns nil when every route of the list returns the page.
 func allWork(user string, among []route) error {
 	results := fetchAll(user, among)
 	var errs []error
@@ -223,7 +210,6 @@ func allWork(user string, among []route) error {
 	return errors.Join(errs...)
 }
 
-// proxyReachable reports why the proxy port of the route on the user's client is not open.
 func proxyReachable(user string, r route) error {
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHosts[user], strconv.Itoa(r.port)), requestTimeout)
 	if err != nil {
@@ -232,7 +218,6 @@ func proxyReachable(user string, r route) error {
 	return conn.Close()
 }
 
-// proxiesReachable returns nil when the proxy port of every route of the list is open.
 func proxiesReachable(user string, among []route) error {
 	var errs []error
 	for _, r := range among {
@@ -241,9 +226,8 @@ func proxiesReachable(user string, among []route) error {
 	return errors.Join(errs...)
 }
 
-// noneWorks returns nil when the proxy of every route of the list is reachable and the request
-// through it fails. A refused connection to the proxy of a client that is still starting is an
-// error, not a failed route.
+// noneWorks treats a refused connection to the proxy of a still-starting client as an error, not
+// a failed route.
 func noneWorks(user string, among []route) error {
 	if err := proxiesReachable(user, among); err != nil {
 		return err

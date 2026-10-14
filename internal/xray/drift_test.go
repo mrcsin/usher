@@ -18,7 +18,6 @@ import (
 	xjson "github.com/xtls/xray-core/infra/conf/json"
 )
 
-// driftConfig holds the parts of the test server config that the cases change.
 type driftConfig struct {
 	dir           string
 	realityPort   int
@@ -27,8 +26,8 @@ type driftConfig struct {
 	realityProto  string
 	certContent   string
 	hysteriaCerts string
-	realityExtra  string // extra members of the reality inbound, each followed by a comma
-	extra         string // extra inbound objects, each followed by a comma
+	realityExtra  string
+	extra         string
 }
 
 func newDriftConfig(dir string) driftConfig {
@@ -43,7 +42,6 @@ func newDriftConfig(dir string) driftConfig {
 	}
 }
 
-// testKey returns a valid Reality private key: 32 bytes of fill in base64url.
 func testKey(fill byte) string {
 	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
 }
@@ -85,8 +83,7 @@ func (c driftConfig) write(t *testing.T) string {
 	return path
 }
 
-// runningFrom builds every inbound of the file at path the way Xray does at start: the original
-// file goes through Xray's own reader and config types, with none of usher's normalization.
+// runningFrom builds the inbounds through Xray's own reader, without usher's normalization.
 func runningFrom(t *testing.T, path string) []*core.InboundHandlerConfig {
 	t.Helper()
 	f, err := os.Open(path)
@@ -114,7 +111,7 @@ func TestCheckDrift(t *testing.T) {
 		name    string
 		change  func(c *driftConfig)
 		running func(running []*core.InboundHandlerConfig) []*core.InboundHandlerConfig
-		want    map[string][]string // tag to the substrings of its reason
+		want    map[string][]string
 	}{
 		{name: "match"},
 		{name: "sniffing change", change: func(c *driftConfig) { c.realityExtra = `"sniffing": {"enabled": true},` },
@@ -254,8 +251,7 @@ func TestCheckDriftListError(t *testing.T) {
 	}
 }
 
-// TestCheckDriftMatchesXrayBuild reads the original file with usher and with Xray's own types. A
-// file without streamSettings and a file written in aliases must show no drift.
+// TestCheckDriftMatchesXrayBuild: a file without streamSettings and a file in aliases show no drift.
 func TestCheckDriftMatchesXrayBuild(t *testing.T) {
 	plain := newDriftConfig(t.TempDir())
 	plain.extra = `{"tag": "plain", "protocol": "vless", "port": 9001,
@@ -290,8 +286,7 @@ func TestCheckDriftMatchesXrayBuild(t *testing.T) {
 	}
 }
 
-// TestCheckDriftDoesNotQuoteBuildErrors gives the file a short id that Xray rejects by quoting it.
-// The reason must not carry the value.
+// TestCheckDriftDoesNotQuoteBuildErrors: Xray quotes a bad short id; the reason must not.
 func TestCheckDriftDoesNotQuoteBuildErrors(t *testing.T) {
 	const bad = "zzSHORTID-SECRET"
 	base := newDriftConfig(t.TempDir())

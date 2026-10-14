@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 )
 
-// Write puts data into path with the given mode: it writes a temp file in the same directory,
-// syncs it, renames it over path and syncs the directory so the rename survives power loss. The
-// directory of path must exist.
+// Write replaces path atomically and syncs the directory so the rename survives power loss.
+// The directory of path must exist.
 func Write(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".atomic-*.tmp")

@@ -158,7 +158,6 @@ func TestClientOutboundShapes(t *testing.T) {
 	}
 }
 
-// assertBuilds checks that Xray accepts the outbound as a client config.
 func assertBuilds(t *testing.T, outbound map[string]any) {
 	t.Helper()
 	encoded, err := json.Marshal(outbound)
@@ -229,7 +228,7 @@ func TestClientOutboundTrust(t *testing.T) {
 		name  string
 		kind  string
 		set   map[string]any
-		want  string // expected pinnedPeerCertSha256, empty for none
+		want  string
 		fails string
 	}{
 		{"ca by default", "vless-tls", nil, "", ""},
@@ -521,8 +520,7 @@ func TestClientOutboundOverrides(t *testing.T) {
 	})
 }
 
-// TestClientOutboundLeaksNothing feeds an inbound full of server-only material and checks that
-// none of it reaches the outbound, the client files or the log.
+// TestClientOutboundLeaksNothing: server-only material never reaches the outbound, files or log.
 func TestClientOutboundLeaksNothing(t *testing.T) {
 	cert, _ := selfSignedPEM(t)
 	var seed [mldsa65.SeedSize]byte

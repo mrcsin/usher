@@ -10,26 +10,17 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// vlessVisionFlow is the VLESS flow of a raw inbound behind TLS or Reality.
 const vlessVisionFlow = "xtls-rprx-vision"
 
-// protocolSpec describes how one inbound protocol holds its users.
 type protocolSpec struct {
-	// proxyType is the full name of the proxy settings message that Xray stores for an inbound of
-	// the protocol.
-	proxyType string
-	// usesID is true when the credential is a UUID in XrayEntry.ID, false when it is a password in
-	// XrayEntry.Password.
-	usesID bool
-	// clientSettings adds the credential and the protocol fields of the client outbound settings.
+	proxyType      string
+	usesID         bool
 	clientSettings func(in inbound, e state.XrayEntry, settings map[string]any)
 	account        func(in inbound, e state.XrayEntry) proto.Message
-	// credential returns the part of an account that identifies what the client must present, or
-	// "" for an account of another type. Two accounts with the same credential are the same user.
+	// credential is "" for an account of another type; equal credentials are the same user.
 	credential func(account proto.Message) string
 }
 
-// protocols maps the lower case protocol of an inbound to its spec.
 var protocols = map[string]protocolSpec{
 	protocolVLESS: {
 		proxyType: "xray.proxy.vless.inbound.Config",
@@ -96,8 +87,6 @@ var protocols = map[string]protocolSpec{
 	},
 }
 
-// vlessFlow returns the flow of the VLESS users of the inbound: vision for raw behind TLS or
-// Reality, none otherwise.
 func vlessFlow(in inbound) string {
 	if in.Network == "raw" && (in.Security == securityTLS || in.Security == securityReality) {
 		return vlessVisionFlow

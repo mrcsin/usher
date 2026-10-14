@@ -14,8 +14,7 @@ import (
 	"time"
 )
 
-// authority is a throwaway CA that signs the server leaves. The client containers trust it through
-// SSL_CERT_FILE, as they would trust the public CA of a real certificate.
+// authority is a throwaway CA that signs the server leaves; clients trust it through SSL_CERT_FILE.
 type authority struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
@@ -47,13 +46,10 @@ func newAuthority() (*authority, error) {
 	return &authority{cert: cert, key: key, pem: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})}, nil
 }
 
-// leaf is a certificate and its key, both PEM encoded.
 type leaf struct {
 	cert, key []byte
 }
 
-// issue signs a new leaf for the DNS name. Every call yields a different certificate and key from
-// the same CA.
 func (a *authority) issue(name string) (leaf, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

@@ -18,17 +18,12 @@ import (
 	"github.com/mrcsin/usher/internal/state"
 )
 
-// Suffix is the file suffix of an AmneziaWG client config.
 const Suffix = ".conf"
 
-// callTimeout bounds each call to awg-grpc.
 const callTimeout = 10 * time.Second
 
-// Dial opens a connection to awg-grpc. It returns the client and the function that closes the
-// connection.
 type Dial func() (awgv1.ManagementServiceClient, func(), error)
 
-// Session is one pass's view of awg-grpc: the interfaces it reported when the session opened.
 type Session struct {
 	client    awgv1.ManagementServiceClient
 	closeConn func()
@@ -67,14 +62,12 @@ func Open(ctx context.Context, dial Dial, host netip.Addr, dns []netip.Addr, log
 	return s, nil
 }
 
-// Interfaces returns the names of the interfaces awg-grpc reported, in the order it reported them.
 func (s *Session) Interfaces() []string {
 	return s.names
 }
 
 // Prepare enrolls the users on the interface and renders their client configs, keyed by
-// clients.Path. It reports whether it changed st. It fails an interface that is not present in
-// the kernel.
+// clients.Path. It reports whether it changed st and fails an interface absent from the kernel.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
 	iface := s.ifaces[name]
 	if !iface.GetPresent() {
@@ -95,7 +88,6 @@ func (s *Session) Prepare(st *state.State, name string, users []string) (map[str
 	return files, changed, nil
 }
 
-// Apply sends the peers of the users to awg-grpc and logs what changed.
 func (s *Session) Apply(ctx context.Context, st *state.State, name string, users []string) error {
 	peers := make([]*awgv1.Peer, 0, len(users))
 	for _, user := range users {
@@ -126,13 +118,10 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 	return nil
 }
 
-// Close closes the connection to awg-grpc.
 func (s *Session) Close() {
 	s.closeConn()
 }
 
-// publicKeyNames maps the public key of every entry of the interface, switched off or not, to
-// its user name.
 func publicKeyNames(st *state.State, ifaceName string) map[string]string {
 	names := make(map[string]string)
 	for user, e := range st.InterfaceEntries(ifaceName) {

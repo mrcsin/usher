@@ -147,7 +147,6 @@ func baseInbound(t *testing.T, kind string) map[string]any {
 	return m
 }
 
-// setPath sets the dotted path in m; a nil value deletes the key.
 func setPath(m map[string]any, path string, value any) {
 	parts := strings.Split(path, ".")
 	for _, p := range parts[:len(parts)-1] {
@@ -191,7 +190,7 @@ func TestReadConfigRejects(t *testing.T) {
 		name string
 		kind string
 		set  map[string]any
-		want string // error substring, a field name
+		want string
 	}{
 		{"port range", "vless-tls", map[string]any{"port": "443-445"}, "port: want a single integer"},
 		{"port list", "vless-tls", map[string]any{"port": "443,444"}, "port:"},
@@ -467,7 +466,6 @@ func TestDeployExampleConfig(t *testing.T) {
 		t.Errorf("shipped Reality inbound error = %v, want one about privateKey", inbounds[0].Err)
 	}
 
-	// With the placeholder key replaced, every inbound is valid.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

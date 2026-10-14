@@ -16,14 +16,12 @@ import (
 )
 
 const (
-	// hopInterval is the udphop interval in seconds; libxray omits it from a link at this value.
+	// libxray omits the udphop interval from a link at this value.
 	hopInterval = 30
 	hopMode     = "intervalLocal,intervalRemote"
 )
 
-// clientOutbound returns the Xray client outbound for one user on the inbound. It copies only what
-// the client needs from the server config and rebuilds the TLS and Reality blocks, so nothing
-// secret or server-only reaches the result. host is the address clients dial unless x-usher sets one.
+// clientOutbound rebuilds the TLS and Reality blocks, so nothing secret or server-only reaches it.
 func clientOutbound(in inbound, host string, entry state.XrayEntry) (map[string]any, error) {
 	stream, err := clientStream(in, entry)
 	if err != nil {
@@ -79,7 +77,6 @@ func clientStream(in inbound, entry state.XrayEntry) (map[string]any, error) {
 	return stream, nil
 }
 
-// pick returns a copy of the listed keys of m that are present.
 func pick(m map[string]any, keys ...string) map[string]any {
 	out := map[string]any{}
 	for _, k := range keys {
@@ -90,8 +87,7 @@ func pick(m map[string]any, keys ...string) map[string]any {
 	return out
 }
 
-// xhttpSettings keeps path, host and mode at the top. A server extra replaces every other field on
-// the server, so it is mirrored verbatim; without one the other fields move into extra.
+// xhttpSettings: a server extra replaces every other field there, so it is mirrored verbatim.
 func xhttpSettings(server map[string]any) map[string]any {
 	out := pick(server, "path", "host", "mode")
 	if extra := object(server["extra"]); len(extra) > 0 {
@@ -110,8 +106,7 @@ func xhttpSettings(server map[string]any) map[string]any {
 	return out
 }
 
-// hysteriaMask returns the client finalmask: the salamander password of the server, then a udphop
-// entry when x-usher.hop_ports is set. libxray reads a link only in that order.
+// hysteriaMask orders salamander before udphop: libxray reads a link only in that order.
 func hysteriaMask(in inbound, server map[string]any) map[string]any {
 	var udp []any
 	serverUDP, _ := object(server["finalmask"])["udp"].([]any)
@@ -140,8 +135,6 @@ func hysteriaMask(in inbound, server map[string]any) map[string]any {
 	return map[string]any{"udp": udp}
 }
 
-// clientTLS rebuilds the tlsSettings block: the name, the ALPN list, the fingerprint and, for
-// trust "pin", the pinned leaf hash.
 func clientTLS(in inbound, server map[string]any) (map[string]any, error) {
 	tls := map[string]any{"serverName": in.ServerName, "fingerprint": in.Hints.Fingerprint}
 	if alpn, ok := server["alpn"]; ok {
@@ -161,8 +154,6 @@ func clientTLS(in inbound, server map[string]any) (map[string]any, error) {
 	return tls, nil
 }
 
-// inlineCertificatePin returns the lower case hex SHA-256 of the first certificate that an inline
-// certificates entry carries.
 func inlineCertificatePin(tls map[string]any) (string, error) {
 	certs, _ := tls["certificates"].([]any)
 	for _, c := range certs {
@@ -184,9 +175,7 @@ func inlineCertificatePin(tls map[string]any) (string, error) {
 	return "", errors.New("no inline certificate")
 }
 
-// realityKeys decodes the privateKey and the optional mldsa65Seed of a realitySettings object. A
-// problem is returned as the field and a reason that never quotes a value, because Xray's own
-// errors do. seed is nil without an mldsa65Seed.
+// realityKeys returns a reason that never quotes a value, unlike Xray's own errors.
 func realityKeys(server map[string]any) (key *ecdh.PrivateKey, seed []byte, field, reason string) {
 	private, _ := server["privateKey"].(string)
 	raw, err := base64.RawURLEncoding.DecodeString(private)
@@ -211,8 +200,6 @@ func realityKeys(server map[string]any) (key *ecdh.PrivateKey, seed []byte, fiel
 	return key, seed, "", ""
 }
 
-// clientReality rebuilds the realitySettings block from the server's: the public key of its
-// privateKey, its first short id and, with an mldsa65Seed, the matching verify key.
 func clientReality(in inbound, server map[string]any) (map[string]any, error) {
 	key, seed, field, reason := realityKeys(server)
 	if field != "" {
@@ -237,7 +224,7 @@ func clientReality(in inbound, server map[string]any) (map[string]any, error) {
 	return reality, nil
 }
 
-// deepCopy copies the maps and lists of a decoded JSON value, so a result never aliases inbound.Raw.
+// deepCopy keeps a result from aliasing inbound.Raw.
 func deepCopy(v any) any {
 	switch v := v.(type) {
 	case map[string]any:

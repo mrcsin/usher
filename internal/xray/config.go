@@ -21,29 +21,21 @@ import (
 	"github.com/mrcsin/usher/internal/config"
 )
 
-// inbound is one managed inbound of the Xray server config. Raw is the inbound object with the
-// config aliases normalized to their canonical names. A non-nil Err means the inbound failed
-// validation. Unless hintsOnly is set, it must not be used; with hintsOnly the drift check and
-// the revoke of foreign users still use it.
+// inbound with Err set failed validation; only a hintsOnly one still serves checkDrift and revoke.
 type inbound struct {
-	Tag      string
-	Protocol string // lower case: vless, hysteria, vmess or trojan
-	Port     int
-	Network  string // raw, ws, grpc, httpupgrade, xhttp or hysteria
-	Security string // none, tls or reality
-	// ServerName is the name the client sends: x-usher.sni, else the first usable Reality
-	// serverNames entry or the tlsSettings serverName. It is empty when security is none.
+	Tag        string
+	Protocol   string // lower case: vless, hysteria, vmess or trojan
+	Port       int
+	Network    string // raw, ws, grpc, httpupgrade, xhttp or hysteria
+	Security   string // none, tls or reality
 	ServerName string
 	Hints      hints
 	Raw        map[string]any
 	Err        error
-	// hintsOnly is true when Err comes from the x-usher block alone: the rest of the inbound
-	// passed validation, so checkDrift still compares it with the running inbound.
-	hintsOnly bool
+	hintsOnly  bool
 }
 
-// hints is the x-usher block of an inbound with the defaults that do not depend on usher's
-// environment applied. An empty Address means USHER_HOST.
+// hints is the x-usher block; an empty Address means USHER_HOST.
 type hints struct {
 	Address     string
 	Port        int
@@ -54,9 +46,7 @@ type hints struct {
 }
 
 const (
-	// trustCA makes the client verify the server certificate against its CA roots.
-	trustCA = "ca"
-	// trustPin makes the client also pin the leaf certificate.
+	trustCA  = "ca"
 	trustPin = "pin"
 
 	defaultFingerprint = "chrome"
@@ -72,8 +62,7 @@ const (
 )
 
 var (
-	// realityFingerprints are the uTLS fingerprints that carry X25519MLKEM768, which the Reality
-	// server requires.
+	// The Reality server requires X25519MLKEM768, which only these uTLS fingerprints carry.
 	realityFingerprints = []string{"chrome", "firefox", "safari"}
 
 	networkAliases = map[string]string{"tcp": "raw", "splithttp": "xhttp", "websocket": "ws"}
@@ -84,8 +73,7 @@ var (
 	sha256Pattern   = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 )
 
-// discardLog drops Xray's global log output. Build prints deprecation warnings, and usher runs no
-// Xray instance whose log they belong to.
+// discardLog drops Xray's global log; Build prints deprecation warnings into it.
 type discardLog struct{}
 
 func (discardLog) Handle(log.Message) {}
@@ -96,10 +84,7 @@ func silenceXrayLog() {
 	silenceOnce.Do(func() { log.RegisterHandler(discardLog{}) })
 }
 
-// readConfig reads the Xray server config at path and returns its managed inbounds in file order.
-// Inbounds of other protocols and inbounds without a tag are skipped. An inbound that fails
-// validation is returned with Err set, so the caller can keep its files. An error means the file
-// as a whole is unusable.
+// readConfig returns invalid inbounds with Err set; an error means the file is unusable.
 func readConfig(path string) ([]inbound, error) {
 	silenceXrayLog()
 	f, err := os.Open(path)
@@ -143,7 +128,6 @@ func readConfig(path string) ([]inbound, error) {
 	return inbounds, nil
 }
 
-// decodeInbound decodes an inbound object as Xray's config reader does.
 func decodeInbound(raw map[string]any) (conf.InboundDetourConfig, error) {
 	var detour conf.InboundDetourConfig
 	encoded, err := json.Marshal(raw)
@@ -167,8 +151,7 @@ func decodeObject(data []byte) (map[string]any, error) {
 	return obj, nil
 }
 
-// validate normalizes in.Raw, checks it against what the backend supports and fills the derived
-// fields. Every error names the field and never quotes a value.
+// Every validate error names the field and never quotes a value.
 func (in *inbound) validate() error {
 	fail := func(field, reason string) error {
 		return fmt.Errorf("inbound %q: %s: %s", in.Tag, field, reason)
@@ -215,8 +198,7 @@ func (in *inbound) validate() error {
 			return fail("streamSettings.realitySettings."+field, reason)
 		}
 	}
-	// The decode catches field type errors that the checks above do not look at. Xray's decoders
-	// can quote the value they reject, so the error names the Go field of a type mismatch at most.
+	// Xray's decoders can quote the rejected value, so the error names at most the Go field.
 	if _, err := decodeInbound(in.Raw); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
@@ -225,7 +207,7 @@ func (in *inbound) validate() error {
 		return fail("inbound", "does not decode as an Xray inbound")
 	}
 
-	// Last, so that a hint error is the only reason left and the drift check can still run.
+	// Last, so a hint error alone leaves the inbound usable for the drift check.
 	if field, reason := in.readHints(stream); field != "" {
 		in.hintsOnly = true
 		return fail(field, reason)
@@ -259,8 +241,7 @@ func (in *inbound) settings() (map[string]any, error) {
 	return settings, nil
 }
 
-// checkUsersEmpty folds the Hysteria alias users into clients and requires the list to be empty,
-// because usher owns every user of the inbound.
+// checkUsersEmpty requires an empty user list: usher owns every user.
 func (in *inbound) checkUsersEmpty(settings map[string]any) error {
 	if in.Protocol == protocolHysteria {
 		if users, ok := settings["users"]; ok {
@@ -282,9 +263,7 @@ func isEmptyList(v any) bool {
 	return v == nil || (ok && len(list) == 0)
 }
 
-// normalizeStream rewrites the aliases of streamSettings to their canonical names and fills in
-// Network and Security. It returns the streamSettings object, a detached empty one when the inbound
-// has none.
+// normalizeStream returns streamSettings, a detached empty object when the inbound has none.
 func (in *inbound) normalizeStream() (map[string]any, error) {
 	v, present := in.Raw["streamSettings"]
 	stream, ok := v.(map[string]any)
@@ -292,8 +271,7 @@ func (in *inbound) normalizeStream() (map[string]any, error) {
 		return nil, errors.New("want an object")
 	}
 	if stream == nil {
-		// Not stored in Raw: an inbound without streamSettings must build the way Xray builds
-		// the original file.
+		// Not stored in Raw, so the inbound builds as Xray builds the original file.
 		stream = map[string]any{}
 	}
 
@@ -392,7 +370,6 @@ func isVersion2(v any) bool {
 	return ok && n.String() == "2"
 }
 
-// checkMasks allows only salamander without packetSize in the udp list, and quicParams.
 func (in *inbound) checkMasks(stream map[string]any) (field, reason string) {
 	mask, present := stream["finalmask"]
 	if !present {
@@ -442,7 +419,6 @@ func (in *inbound) checkXHTTP(stream map[string]any) (field, reason string) {
 	return "", ""
 }
 
-// xUsher mirrors the x-usher block. Pointers tell an absent field from a zero one.
 type xUsher struct {
 	Address     string `json:"address"`
 	Port        *int   `json:"port"`
@@ -453,7 +429,6 @@ type xUsher struct {
 	HopPorts    string `json:"hop_ports"`
 }
 
-// readHints decodes x-usher, checks it against the inbound and fills Hints and ServerName.
 func (in *inbound) readHints(stream map[string]any) (field, reason string) {
 	var hint xUsher
 	if block, ok := in.Raw["x-usher"]; ok {
@@ -532,9 +507,7 @@ func (in *inbound) readHints(stream map[string]any) (field, reason string) {
 	return "", ""
 }
 
-// serverName resolves the name the client sends. An explicit x-usher.sni wins over the server
-// config on TLS. Reality looks the name up in serverNames by exact match, so there the override
-// must be one of the entries; it is how an operator picks one of several names.
+// serverName: on Reality the x-usher.sni override must be one of serverNames, matched exactly.
 func (in *inbound) serverName(stream map[string]any, override string) (name, field, reason string) {
 	switch in.Security {
 	case securityTLS:
@@ -583,7 +556,6 @@ func validHopPorts(s string) bool {
 	return from >= 1 && from < to && to <= 65535
 }
 
-// object returns v as a JSON object, or nil when it is not one.
 func object(v any) map[string]any {
 	m, _ := v.(map[string]any)
 	return m
