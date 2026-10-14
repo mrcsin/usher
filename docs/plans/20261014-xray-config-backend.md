@@ -478,12 +478,12 @@ reported by awg-grpc" and nothing reaches Xray.
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify edge cases are handled
-- [ ] run full test suite: `go test -race -count=1 ./...`
-- [ ] run `scripts/format.sh`, shellcheck and actionlint
-- [ ] run e2e tests: `go test -tags e2e -count=1 -v ./test/e2e/...` (CI)
-- [ ] verify test coverage meets project standard
+- [x] verify all requirements from Overview are implemented
+- [x] verify edge cases are handled
+- [x] run full test suite: `go test -race -count=1 ./...`
+- [x] run `scripts/format.sh`, shellcheck and actionlint
+- [x] run e2e tests: `go test -tags e2e -count=1 -v ./test/e2e/...` (CI) (awg e2e deferred to CI, not run locally; Xray e2e passed on ger in Task 10, code unchanged since)
+- [x] verify test coverage meets project standard (go test -cover: xray 90.9%, awg 96.6%, config 97.6%, pass 97.9%, state 91.0%, watch 100%, clients 78.9%, cmd/usher 73.2%, atomicfile 61.5%)
 
 ### Task 12: [Final] Update documentation
 
