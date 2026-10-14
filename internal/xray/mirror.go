@@ -25,7 +25,7 @@ const (
 // the client needs from the server config and rebuilds the TLS and Reality blocks, so nothing
 // secret or server-only reaches the result. host is the address clients dial unless x-usher sets
 // one. The xhttp tuning is packed into extra, the one form both the .json and the share link carry.
-func clientOutbound(in Inbound, host string, entry state.XrayEntry) (map[string]any, error) {
+func clientOutbound(in inbound, host string, entry state.XrayEntry) (map[string]any, error) {
 	stream, err := clientStream(in, entry)
 	if err != nil {
 		return nil, err
@@ -34,16 +34,7 @@ func clientOutbound(in Inbound, host string, entry state.XrayEntry) (map[string]
 		host = in.Hints.Address
 	}
 	settings := map[string]any{"address": host, "port": in.Hints.Port}
-	switch in.Protocol {
-	case "vless":
-		settings["id"], settings["encryption"], settings["flow"] = entry.ID.String(), "none", vlessFlow(in)
-	case "vmess":
-		settings["id"], settings["security"] = entry.ID.String(), "auto"
-	case "trojan":
-		settings["password"] = entry.Password
-	case "hysteria":
-		settings["version"] = 2
-	}
+	protocols[in.Protocol].clientSettings(in, entry, settings)
 	return map[string]any{
 		"tag":            in.Tag,
 		"protocol":       in.Protocol,
@@ -52,7 +43,7 @@ func clientOutbound(in Inbound, host string, entry state.XrayEntry) (map[string]
 	}, nil
 }
 
-func clientStream(in Inbound, entry state.XrayEntry) (map[string]any, error) {
+func clientStream(in inbound, entry state.XrayEntry) (map[string]any, error) {
 	server := object(in.Raw["streamSettings"])
 	stream := map[string]any{"network": in.Network, "security": in.Security}
 
@@ -73,13 +64,13 @@ func clientStream(in Inbound, entry state.XrayEntry) (map[string]any, error) {
 	}
 
 	switch in.Security {
-	case "tls":
+	case securityTLS:
 		tls, err := clientTLS(in, object(server["tlsSettings"]))
 		if err != nil {
 			return nil, err
 		}
 		stream["tlsSettings"] = tls
-	case "reality":
+	case securityReality:
 		reality, err := clientReality(in, object(server["realitySettings"]))
 		if err != nil {
 			return nil, err
@@ -122,7 +113,7 @@ func xhttpSettings(server map[string]any) map[string]any {
 
 // hysteriaMask returns the client finalmask: the salamander password of the server, then a udphop
 // entry when x-usher.hop_ports is set. libxray reads a link only in that order.
-func hysteriaMask(in Inbound, server map[string]any) map[string]any {
+func hysteriaMask(in inbound, server map[string]any) map[string]any {
 	var udp []any
 	serverUDP, _ := object(server["finalmask"])["udp"].([]any)
 	for _, item := range serverUDP {
@@ -152,12 +143,12 @@ func hysteriaMask(in Inbound, server map[string]any) map[string]any {
 
 // clientTLS rebuilds the tlsSettings block: the name, the ALPN list, the fingerprint and, for
 // trust "pin", the pinned leaf hash.
-func clientTLS(in Inbound, server map[string]any) (map[string]any, error) {
+func clientTLS(in inbound, server map[string]any) (map[string]any, error) {
 	tls := map[string]any{"serverName": in.ServerName, "fingerprint": in.Hints.Fingerprint}
 	if alpn, ok := server["alpn"]; ok {
 		tls["alpn"] = deepCopy(alpn)
 	}
-	if in.Hints.Trust != TrustPin {
+	if in.Hints.Trust != trustPin {
 		return tls, nil
 	}
 	pin := in.Hints.PinSHA256
@@ -223,7 +214,7 @@ func realityKeys(server map[string]any) (key *ecdh.PrivateKey, seed []byte, fiel
 
 // clientReality rebuilds the realitySettings block from the server's: the public key of its
 // privateKey, its first short id and, with an mldsa65Seed, the matching verify key.
-func clientReality(in Inbound, server map[string]any) (map[string]any, error) {
+func clientReality(in inbound, server map[string]any) (map[string]any, error) {
 	key, seed, field, reason := realityKeys(server)
 	if field != "" {
 		return nil, fmt.Errorf("inbound %q: streamSettings.realitySettings.%s: %s", in.Tag, field, reason)
@@ -247,7 +238,7 @@ func clientReality(in Inbound, server map[string]any) (map[string]any, error) {
 	return reality, nil
 }
 
-// deepCopy copies the maps and lists of a decoded JSON value, so a result never aliases Inbound.Raw.
+// deepCopy copies the maps and lists of a decoded JSON value, so a result never aliases inbound.Raw.
 func deepCopy(v any) any {
 	switch v := v.(type) {
 	case map[string]any:

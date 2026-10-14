@@ -33,14 +33,14 @@ const (
 
 var testID = uuid.MustParse("3f2504e0-4f89-41d3-9a0c-0305e82c3301")
 
-func testEntry(in Inbound) state.XrayEntry {
+func testEntry(in inbound) state.XrayEntry {
 	if protocols[in.Protocol].usesID {
 		return state.XrayEntry{ID: testID}
 	}
 	return state.XrayEntry{Password: testPassword}
 }
 
-func mirrorOne(t *testing.T, in Inbound) map[string]any {
+func mirrorOne(t *testing.T, in inbound) map[string]any {
 	t.Helper()
 	if in.Err != nil {
 		t.Fatalf("inbound %q: %v", in.Tag, in.Err)
@@ -72,9 +72,9 @@ func wantJSON(t *testing.T, got map[string]any, want string) {
 	}
 }
 
-func byTag(t *testing.T, inbounds []Inbound) map[string]Inbound {
+func byTag(t *testing.T, inbounds []inbound) map[string]inbound {
 	t.Helper()
-	m := map[string]Inbound{}
+	m := map[string]inbound{}
 	for _, in := range inbounds {
 		m[in.Tag] = in
 	}
@@ -82,7 +82,7 @@ func byTag(t *testing.T, inbounds []Inbound) map[string]Inbound {
 }
 
 func TestClientOutboundShapes(t *testing.T) {
-	inbounds, err := ReadConfig("testdata/server.json")
+	inbounds, err := readConfig("testdata/server.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +423,7 @@ func TestClientOutboundXHTTP(t *testing.T) {
 		object(extra["xmux"])["a"] = "changed"
 		server := object(object(in.Raw["streamSettings"])["xhttpSettings"])
 		if object(object(server["extra"])["xmux"])["a"] != "1" {
-			t.Error("the result shares memory with Inbound.Raw")
+			t.Error("the result shares memory with inbound.Raw")
 		}
 	})
 }

@@ -15,20 +15,20 @@ func TestEnroll(t *testing.T) {
 	seededID := uuid.New()
 	tests := []struct {
 		name        string
-		in          Inbound
+		in          inbound
 		seed        map[string]state.XrayEntry
 		users       []string
 		wantChanged bool
 		wantErr     string
 	}{
-		{name: "vless gets ids", in: Inbound{Tag: "t", Protocol: "vless"}, users: []string{"alice", "bob"}, wantChanged: true},
-		{name: "vmess gets ids", in: Inbound{Tag: "t", Protocol: "vmess"}, users: []string{"alice"}, wantChanged: true},
-		{name: "trojan gets passwords", in: Inbound{Tag: "t", Protocol: "trojan"}, users: []string{"alice"}, wantChanged: true},
-		{name: "hysteria gets passwords", in: Inbound{Tag: "t", Protocol: "hysteria"}, users: []string{"alice"}, wantChanged: true},
-		{name: "seeded entry kept", in: Inbound{Tag: "t", Protocol: "vless"},
+		{name: "vless gets ids", in: inbound{Tag: "t", Protocol: "vless"}, users: []string{"alice", "bob"}, wantChanged: true},
+		{name: "vmess gets ids", in: inbound{Tag: "t", Protocol: "vmess"}, users: []string{"alice"}, wantChanged: true},
+		{name: "trojan gets passwords", in: inbound{Tag: "t", Protocol: "trojan"}, users: []string{"alice"}, wantChanged: true},
+		{name: "hysteria gets passwords", in: inbound{Tag: "t", Protocol: "hysteria"}, users: []string{"alice"}, wantChanged: true},
+		{name: "seeded entry kept", in: inbound{Tag: "t", Protocol: "vless"},
 			seed: map[string]state.XrayEntry{"t/alice": {ID: seededID}}, users: []string{"alice"}},
-		{name: "no users", in: Inbound{Tag: "t", Protocol: "vless"}},
-		{name: "entry of the wrong kind", in: Inbound{Tag: "t", Protocol: "hysteria"},
+		{name: "no users", in: inbound{Tag: "t", Protocol: "vless"}},
+		{name: "entry of the wrong kind", in: inbound{Tag: "t", Protocol: "hysteria"},
 			seed:  map[string]state.XrayEntry{"t/alice": {ID: seededID}},
 			users: []string{"bob", "alice"}, wantErr: "does not fit protocol hysteria"},
 	}

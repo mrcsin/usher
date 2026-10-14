@@ -70,7 +70,7 @@ func renderLink(clientJSON []byte) ([]byte, error) {
 // renderFiles returns the client files of one user on the inbound, keyed by clients.Path: always
 // the .json, and the .txt unless the inbound cannot have a link. A link libxray refuses is a
 // defect of usher, which builds only shapes libxray knows; it is logged and the .json stays.
-func renderFiles(log *slog.Logger, in Inbound, host, user string, entry state.XrayEntry) (map[string][]byte, error) {
+func renderFiles(log *slog.Logger, in inbound, host, user string, entry state.XrayEntry) (map[string][]byte, error) {
 	outbound, err := clientOutbound(in, host, entry)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func renderFiles(log *slog.Logger, in Inbound, host, user string, entry state.Xr
 	}
 	files := map[string][]byte{clients.Path(user, in.Tag, JSONSuffix): clientJSON}
 
-	if in.Protocol == "hysteria" && in.Hints.Trust == TrustPin {
+	if in.Protocol == protocolHysteria && in.Hints.Trust == trustPin {
 		return files, nil // v2rayNG and Hiddify do not read pcs for hysteria2://
 	}
 	link, err := renderLink(clientJSON)

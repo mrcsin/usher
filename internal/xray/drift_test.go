@@ -13,27 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xtls/xray-core/app/proxyman/command"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf"
 	xjson "github.com/xtls/xray-core/infra/conf/json"
-	"google.golang.org/grpc"
 )
-
-// fakeHandlerService answers ListInbounds only; any other call panics on the nil embedded client.
-type fakeHandlerService struct {
-	command.HandlerServiceClient
-	inbounds []*core.InboundHandlerConfig
-	err      error
-}
-
-func (f *fakeHandlerService) ListInbounds(_ context.Context, _ *command.ListInboundsRequest,
-	_ ...grpc.CallOption) (*command.ListInboundsResponse, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return &command.ListInboundsResponse{Inbounds: f.inbounds}, nil
-}
 
 // driftConfig holds the parts of the test server config that the cases change.
 type driftConfig struct {
@@ -177,13 +160,13 @@ func TestCheckDrift(t *testing.T) {
 			if tt.change != nil {
 				tt.change(&changed)
 			}
-			inbounds, err := ReadConfig(changed.write(t))
+			inbounds, err := readConfig(changed.write(t))
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			var logs bytes.Buffer
-			drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+			drift, err := checkDrift(context.Background(), newUserService(running),
 				slog.New(slog.NewTextHandler(&logs, nil)), inbounds)
 			if err != nil {
 				t.Fatal(err)
@@ -222,13 +205,13 @@ func TestCheckDriftExtraRuntimeTag(t *testing.T) {
 	stray.extra = `{"tag": "stray", "protocol": "vless", "port": 2999,
 		"settings": {"clients": [], "decryption": "none"}},`
 	running := runningFrom(t, stray.write(t))
-	inbounds, err := ReadConfig(base.write(t))
+	inbounds, err := readConfig(base.write(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var logs bytes.Buffer
-	drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+	drift, err := checkDrift(context.Background(), newUserService(running),
 		slog.New(slog.NewTextHandler(&logs, nil)), inbounds)
 	if err != nil {
 		t.Fatal(err)
@@ -247,13 +230,13 @@ func TestCheckDriftExtraRuntimeTag(t *testing.T) {
 func TestCheckDriftSkipsInvalidInbound(t *testing.T) {
 	base := newDriftConfig(t.TempDir())
 	running := runningFrom(t, base.write(t))
-	inbounds, err := ReadConfig(base.write(t))
+	inbounds, err := readConfig(base.write(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	inbounds[0].Err = errors.New("invalid")
 
-	drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+	drift, err := checkDrift(context.Background(), newUserService(running),
 		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), inbounds)
 	if err != nil {
 		t.Fatal(err)
@@ -264,7 +247,7 @@ func TestCheckDriftSkipsInvalidInbound(t *testing.T) {
 }
 
 func TestCheckDriftListError(t *testing.T) {
-	_, err := checkDrift(context.Background(), &fakeHandlerService{err: errors.New("unavailable")},
+	_, err := checkDrift(context.Background(), &userService{inboundErr: errors.New("unavailable")},
 		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), nil)
 	if err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Errorf("err = %v, want the list error wrapped", err)
@@ -286,7 +269,7 @@ func TestCheckDriftMatchesXrayBuild(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			inbounds, err := ReadConfig(tt.path)
+			inbounds, err := readConfig(tt.path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -295,7 +278,7 @@ func TestCheckDriftMatchesXrayBuild(t *testing.T) {
 					t.Fatalf("%s: %v", in.Tag, in.Err)
 				}
 			}
-			drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: runningFrom(t, tt.path)},
+			drift, err := checkDrift(context.Background(), newUserService(runningFrom(t, tt.path)),
 				slog.New(slog.DiscardHandler), inbounds)
 			if err != nil {
 				t.Fatal(err)
@@ -315,7 +298,7 @@ func TestCheckDriftDoesNotQuoteBuildErrors(t *testing.T) {
 	running := runningFrom(t, base.write(t))
 	broken := base
 	broken.shortID = bad
-	inbounds, err := ReadConfig(broken.write(t))
+	inbounds, err := readConfig(broken.write(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +306,7 @@ func TestCheckDriftDoesNotQuoteBuildErrors(t *testing.T) {
 		t.Fatalf("want the reality inbound to pass validation, got %+v", inbounds[0].Err)
 	}
 
-	drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+	drift, err := checkDrift(context.Background(), newUserService(running),
 		slog.New(slog.DiscardHandler), inbounds)
 	if err != nil {
 		t.Fatal(err)
@@ -356,11 +339,11 @@ func TestCheckDriftUnusable(t *testing.T) {
 			base := newDriftConfig(t.TempDir())
 			running := runningFrom(t, base.write(t))
 			tt.change(&base)
-			inbounds, err := ReadConfig(base.write(t))
+			inbounds, err := readConfig(base.write(t))
 			if err != nil {
 				t.Fatal(err)
 			}
-			drift, err := checkDrift(context.Background(), &fakeHandlerService{inbounds: running},
+			drift, err := checkDrift(context.Background(), newUserService(running),
 				slog.New(slog.DiscardHandler), inbounds)
 			if err != nil {
 				t.Fatal(err)

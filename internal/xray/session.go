@@ -29,8 +29,8 @@ type Dial func() (command.HandlerServiceClient, func(), error)
 type Session struct {
 	client    command.HandlerServiceClient
 	closeConn func()
-	inbounds  []Inbound
-	byTag     map[string]Inbound
+	inbounds  []inbound
+	byTag     map[string]inbound
 	drift     map[string]error
 	// broken maps a tag whose accounts and client files cannot be built this pass to the reason.
 	// Apply only revokes users on such a tag.
@@ -44,7 +44,7 @@ type Session struct {
 // socketPath is a stale socket of a killed Xray, Open removes it and fails, so the pass reports Xray
 // down and the restart policy can start Xray again.
 func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, log *slog.Logger) (*Session, error) {
-	inbounds, err := ReadConfig(configPath)
+	inbounds, err := readConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, l
 		closeConn()
 		return nil, err
 	}
-	byTag := make(map[string]Inbound, len(inbounds))
+	byTag := make(map[string]inbound, len(inbounds))
 	for _, in := range inbounds {
 		byTag[in.Tag] = in
 	}
@@ -99,9 +99,9 @@ func (s *Session) Interfaces() []string {
 // Prepare enrolls the users on the inbound in st and renders their client files. When the inbound
 // failed structural validation, Prepare returns the error and the pass skips Apply, so usher
 // touches no user of that tag. When only the x-usher block failed, an enrolled credential does not
-// fit the inbound or a file cannot be rendered, Prepare keeps
-// the reason and returns no error, and Apply then still revokes the users who left and returns the
-// reason, which keeps the old client files.
+// fit the inbound or a file cannot be rendered, Prepare keeps the reason and returns no error, and
+// Apply then still revokes the users who left and returns the reason, which keeps the old client
+// files.
 func (s *Session) Prepare(st *state.State, name string, users []string) (map[string][]byte, bool, error) {
 	in := s.byTag[name]
 	if in.Err != nil {
@@ -161,7 +161,7 @@ type userChanges struct {
 // reconcile lists the users of the inbound, removes foreign and changed ones, adds missing and
 // changed ones, and logs the difference. It tries every operation and joins the errors, so one
 // failure does not hold back a removal; the next pass converges from the listed state.
-func (s *Session) reconcile(ctx context.Context, st *state.State, in Inbound, users []string) error {
+func (s *Session) reconcile(ctx context.Context, st *state.State, in inbound, users []string) error {
 	desired := make(map[string]*serial.TypedMessage, len(users))
 	credentials := make(map[string]string, len(users))
 	spec := protocols[in.Protocol]
@@ -237,8 +237,11 @@ func (s *Session) revoke(ctx context.Context, tag string, users []string) error 
 	var changes userChanges
 	var errs []error
 	for _, u := range listed {
+		if u == nil {
+			continue
+		}
 		email := u.GetEmail()
-		if u == nil || keep[email] {
+		if keep[email] {
 			continue
 		}
 		if err := s.removeUser(ctx, tag, email); err != nil {
@@ -257,7 +260,7 @@ func (s *Session) revoke(ctx context.Context, tag string, users []string) error 
 
 func (s *Session) logChanges(tag string, changes userChanges) {
 	if len(changes.added)+len(changes.removed)+len(changes.updated) > 0 {
-		s.log.Info("users changed", "inbound", tag, "added", changes.added,
+		s.log.Info("users changed", "interface", tag, "added", changes.added,
 			"removed", changes.removed, "updated", changes.updated)
 	}
 }
@@ -280,7 +283,7 @@ func (s *Session) listUsers(ctx context.Context, tag string) ([]*protocol.User, 
 }
 
 // liveCredentials maps the email of every user of the inbound to the credential of its account.
-func (s *Session) liveCredentials(ctx context.Context, in Inbound) (map[string]string, error) {
+func (s *Session) liveCredentials(ctx context.Context, in inbound) (map[string]string, error) {
 	users, err := s.listUsers(ctx, in.Tag)
 	if err != nil {
 		return nil, err

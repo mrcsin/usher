@@ -24,7 +24,7 @@ var update = flag.Bool("update", false, "rewrite the golden files")
 const goldenDir = "testdata/golden"
 
 func TestGolden(t *testing.T) {
-	inbounds, err := ReadConfig(filepath.Join(goldenDir, "server.json"))
+	inbounds, err := readConfig(filepath.Join(goldenDir, "server.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,11 +182,11 @@ func TestRenderJSONRejectsBadOutbound(t *testing.T) {
 func TestRenderFilesLinkDefect(t *testing.T) {
 	// libxray refuses a single-port hop while the outbound still builds: the .json stays and the
 	// defect is logged without a secret.
-	inbounds, err := ReadConfig(filepath.Join(goldenDir, "server.json"))
+	inbounds, err := readConfig(filepath.Join(goldenDir, "server.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hop Inbound
+	var hop inbound
 	for _, in := range inbounds {
 		if in.Tag == "hy2-hop" {
 			hop = in

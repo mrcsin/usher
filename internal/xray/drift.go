@@ -2,7 +2,6 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,7 +12,6 @@ import (
 	"github.com/xtls/xray-core/app/proxyman/command"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/core"
-	"github.com/xtls/xray-core/infra/conf"
 	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/tls"
 	"google.golang.org/protobuf/proto"
@@ -29,28 +27,17 @@ type driftError struct {
 
 func (e *driftError) Error() string { return e.reason }
 
-// errDoesNotBuild stands for every error of Xray's inbound Build. Xray quotes the keys and short
-// ids it rejects, so its text never reaches a reason.
-var errDoesNotBuild = errors.New("the file inbound does not build as an Xray inbound")
-
 // buildInbound builds the inbound object the way Xray does, without the certificate entries that
-// name a file, which Xray reads from its own filesystem.
+// name a file, which Xray reads from its own filesystem. Xray quotes the keys and short ids it
+// rejects, so the error of its decode or Build never reaches a reason.
 func buildInbound(raw map[string]any) (*core.InboundHandlerConfig, error) {
-	raw, err := withoutFileCertificates(raw)
+	detour, err := decodeInbound(withoutFileCertificates(raw))
 	if err != nil {
-		return nil, err
-	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("encoding the file inbound: %w", err)
-	}
-	var detour conf.InboundDetourConfig
-	if err := json.Unmarshal(encoded, &detour); err != nil {
-		return nil, errDoesNotBuild
+		return nil, errors.New("the file inbound does not build as an Xray inbound")
 	}
 	built, err := detour.Build()
 	if err != nil {
-		return nil, errDoesNotBuild
+		return nil, errors.New("the file inbound does not build as an Xray inbound")
 	}
 	return built, nil
 }
@@ -75,7 +62,7 @@ func isManagedProxyType(proxyType string) bool {
 // itself, so a changed file is no drift. A reason names the differing parts and never a
 // value. Running inbounds of a managed protocol that the file does not define are logged.
 func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *slog.Logger,
-	inbounds []Inbound) (map[string]error, error) {
+	inbounds []inbound) (map[string]error, error) {
 	resp, err := client.ListInbounds(ctx, &command.ListInboundsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("listing xray inbounds: %w", err)
@@ -120,7 +107,6 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 			drift[in.Tag] = &driftError{
 				reason: fmt.Sprintf("inbound %q: differs from the running Xray in %s, restart Xray to load the file",
 					in.Tag, strings.Join(parts, ", ")),
-				unusable: slices.Contains(parts, partProxyType),
 			}
 		}
 	}
@@ -136,17 +122,16 @@ func checkDrift(ctx context.Context, client command.HandlerServiceClient, log *s
 const partProxyType = "proxy type"
 
 // differingParts returns the names of the parts of the file inbound that differ from the running
-// one: "proxy type", "proxy settings", "port", "stream settings" and "receiver settings".
-func differingParts(in Inbound, live *core.InboundHandlerConfig) ([]string, error) {
+// one: "proxy settings", "port", "stream settings" and "receiver settings". The caller has
+// checked that both run the same proxy type.
+func differingParts(in inbound, live *core.InboundHandlerConfig) ([]string, error) {
 	built, err := buildInbound(in.Raw)
 	if err != nil {
 		return nil, err
 	}
 
 	var parts []string
-	if built.GetProxySettings().GetType() != live.GetProxySettings().GetType() {
-		parts = append(parts, partProxyType)
-	} else if equal, err := equalMessages(built.GetProxySettings(), live.GetProxySettings()); err != nil {
+	if equal, err := equalMessages(built.GetProxySettings(), live.GetProxySettings()); err != nil {
 		return nil, err
 	} else if !equal {
 		parts = append(parts, "proxy settings")
@@ -230,19 +215,12 @@ func dropPathCertificates(stream *internet.StreamConfig) error {
 
 // withoutFileCertificates returns a copy of an inbound object without the tlsSettings certificate
 // entries that name a file.
-func withoutFileCertificates(raw map[string]any) (map[string]any, error) {
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("encoding the file inbound: %w", err)
-	}
-	clone, err := decodeObject(encoded)
-	if err != nil {
-		return nil, err
-	}
+func withoutFileCertificates(raw map[string]any) map[string]any {
+	clone := deepCopy(raw).(map[string]any)
 	tlsSettings := object(object(clone["streamSettings"])["tlsSettings"])
 	certs, ok := tlsSettings["certificates"].([]any)
 	if !ok {
-		return clone, nil
+		return clone
 	}
 	tlsSettings["certificates"] = slices.DeleteFunc(certs, func(c any) bool {
 		entry := object(c)
@@ -250,5 +228,5 @@ func withoutFileCertificates(raw map[string]any) (map[string]any, error) {
 		key, _ := entry["keyFile"].(string)
 		return file != "" || key != ""
 	})
-	return clone, nil
+	return clone
 }

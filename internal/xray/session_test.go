@@ -95,7 +95,7 @@ func (f *userService) AlterInbound(_ context.Context, req *command.AlterInboundR
 }
 
 // credentials maps the emails of the tag to their credentials.
-func (f *userService) credentials(t *testing.T, in Inbound) map[string]string {
+func (f *userService) credentials(t *testing.T, in inbound) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, u := range f.users[in.Tag] {
@@ -108,7 +108,7 @@ func (f *userService) credentials(t *testing.T, in Inbound) map[string]string {
 	return out
 }
 
-func (f *userService) seed(in Inbound, email string, e state.XrayEntry) {
+func (f *userService) seed(in inbound, email string, e state.XrayEntry) {
 	f.users[in.Tag] = append(f.users[in.Tag], &protocol.User{Email: email, Account: serial.ToTypedMessage(protocols[in.Protocol].account(in, e))})
 }
 
@@ -137,7 +137,7 @@ func newSessionFixture(t *testing.T, change func(c *driftConfig)) sessionFixture
 	return sessionFixture{session: session, service: service, logs: logs, cfg: cfg}
 }
 
-func (f sessionFixture) inbound(tag string) Inbound {
+func (f sessionFixture) inbound(tag string) inbound {
 	return f.session.byTag[tag]
 }
 
@@ -279,82 +279,34 @@ func TestSessionBrokenInboundStillRevokes(t *testing.T) {
 	}
 }
 
-// TestSessionStructuralErrorTouchesNothing: an inbound that fails structural validation returns
-// its error from Prepare, so the pass skips Apply, and a direct Apply still removes no user.
-func TestSessionStructuralErrorTouchesNothing(t *testing.T) {
+// TestSessionApplyGuards: Apply changes no account when the inbound failed structural validation
+// or when nothing proves the running inbound takes the file's accounts. A hint error must not
+// skip the drift check. The running Xray holds the base config; the file holds the change.
+func TestSessionApplyGuards(t *testing.T) {
 	badTag := `{"tag": "bad tag", "protocol": "vless", "port": 9005,
 		"settings": {"clients": [], "decryption": "none"}},`
 	dup := `{"tag": "ws", "protocol": "vless", "port": 9002,
 		"settings": {"clients": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5"}], "decryption": "none"}},`
+	badHint := `"x-usher": {"adress": "x"},`
 	tests := []struct {
-		name  string
-		extra string
-		tag   string
+		name           string
+		change         func(c *driftConfig)
+		tag            string
+		prepareFails   bool   // Prepare returns the validation error
+		wantApplyError string // "" accepts any error
 	}{
-		{"static clients", badInbound, "bad"},
-		{"invalid tag", badTag, "bad tag"},
-		{"duplicate tag", dup, "ws"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newSessionFixture(t, func(c *driftConfig) { c.extra = tt.extra })
-			in := f.inbound(tt.tag)
-			f.service.seed(in, "someone-else", idEntry())
-			f.service.alters = 0
-
-			files, changed, err := f.session.Prepare(newState(), tt.tag, []string{"alice"})
-			if err == nil || files != nil || changed {
-				t.Fatalf("Prepare = %v, %v, %v, want the validation error", files, changed, err)
-			}
-			if err := f.session.Apply(t.Context(), newState(), tt.tag, []string{"alice"}); err == nil {
-				t.Error("Apply error = nil, want the validation error")
-			}
-			if f.service.alters != 0 {
-				t.Errorf("AlterInbound calls = %d, want 0", f.service.alters)
-			}
-		})
-	}
-}
-
-// TestSessionApplySkipsFileThatDoesNotBuild: the file inbound changed protocol and no longer
-// builds, so nothing proves the running vless handler can take an account of the new type.
-func TestSessionApplySkipsFileThatDoesNotBuild(t *testing.T) {
-	base := newDriftConfig(t.TempDir())
-	running := runningFrom(t, base.write(t))
-	broken := base
-	broken.realityProto = "trojan"
-	broken.shortID = "zz"
-	path := broken.write(t)
-
-	service := newUserService(running)
-	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
-	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path,
-		"198.51.100.7", slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
-	st := newState()
-	if _, _, err := session.Prepare(st, "reality", []string{"alice"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := session.Apply(t.Context(), st, "reality", []string{"alice"}); err == nil {
-		t.Error("Apply error = nil, want the drift reason")
-	}
-	if service.alters != 0 {
-		t.Errorf("AlterInbound calls = %d, want 0", service.alters)
-	}
-}
-
-// TestSessionHintErrorStillGuardedByDrift: an x-usher hint error must not skip the drift check, so
-// Apply revokes nothing from a running inbound it could not compare with the file.
-func TestSessionHintErrorStillGuardedByDrift(t *testing.T) {
-	tests := []struct {
-		name    string
-		change  func(c *driftConfig)
-		wantErr string
-	}{
-		{"proxy type differs", func(c *driftConfig) { c.realityProto = "trojan" }, "proxy type"},
-		{"file does not build", func(c *driftConfig) { c.shortID = "zz" }, "comparing with"},
+		{"static clients", func(c *driftConfig) { c.extra = badInbound }, "bad", true, ""},
+		{"invalid tag", func(c *driftConfig) { c.extra = badTag }, "bad tag", true, ""},
+		{"duplicate tag", func(c *driftConfig) { c.extra = dup }, "ws", true, ""},
+		{"proxy type differs and the file does not build", func(c *driftConfig) {
+			c.realityProto, c.shortID = "trojan", "zz"
+		}, "reality", false, ""},
+		{"hint error, proxy type differs", func(c *driftConfig) {
+			c.realityProto, c.realityExtra = "trojan", badHint
+		}, "reality", false, "proxy type"},
+		{"hint error, file does not build", func(c *driftConfig) {
+			c.shortID, c.realityExtra = "zz", badHint
+		}, "reality", false, "comparing with"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -362,28 +314,29 @@ func TestSessionHintErrorStillGuardedByDrift(t *testing.T) {
 			running := runningFrom(t, base.write(t))
 			file := base
 			tt.change(&file)
-			file.realityExtra = `"x-usher": {"adress": "x"},`
-			path := file.write(t)
 
 			service := newUserService(running)
 			dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
-			session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path,
+			session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), file.write(t),
 				"198.51.100.7", slog.New(slog.DiscardHandler))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if session.byTag["reality"].Err == nil {
-				t.Fatal("reality inbound has no hint error, the fixture is wrong")
-			}
-			service.users["reality"] = []*protocol.User{{Email: "operator-own"}}
+			service.users[tt.tag] = []*protocol.User{{Email: "operator-own"}}
+			service.alters = 0
 
 			st := newState()
-			if _, _, err := session.Prepare(st, "reality", []string{"alice"}); err != nil {
+			files, changed, err := session.Prepare(st, tt.tag, []string{"alice"})
+			if tt.prepareFails {
+				if err == nil || files != nil || changed {
+					t.Fatalf("Prepare = %v, %v, %v, want the validation error", files, changed, err)
+				}
+			} else if err != nil {
 				t.Fatal(err)
 			}
-			err = session.Apply(t.Context(), st, "reality", []string{"alice"})
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("Apply error = %v, want one with %q", err, tt.wantErr)
+			err = session.Apply(t.Context(), st, tt.tag, []string{"alice"})
+			if err == nil || !strings.Contains(err.Error(), tt.wantApplyError) {
+				t.Errorf("Apply error = %v, want one with %q", err, tt.wantApplyError)
 			}
 			if service.alters != 0 {
 				t.Errorf("AlterInbound calls = %d, want 0", service.alters)
@@ -656,29 +609,37 @@ func TestSessionApplyFailures(t *testing.T) {
 	})
 }
 
-func TestOpenClosesConnectionWhenDriftCheckFails(t *testing.T) {
-	cfg := newDriftConfig(t.TempDir())
-	service := newUserService(nil)
-	service.inboundErr = errors.New("api down")
-	closed := false
-	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() { closed = true }, nil }
-	_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t), "198.51.100.7",
-		slog.New(slog.DiscardHandler))
-	if err == nil || !strings.Contains(err.Error(), "api down") {
-		t.Errorf("Open error = %v, want the list error", err)
+func TestOpenFailures(t *testing.T) {
+	driftFails := newUserService(nil)
+	driftFails.inboundErr = errors.New("api down")
+	tests := []struct {
+		name       string
+		service    *userService // nil makes the dial fail
+		wantErr    string
+		wantClosed bool
+	}{
+		{"drift check fails", driftFails, "api down", true},
+		{"dial fails", nil, "connecting to xray", false},
 	}
-	if !closed {
-		t.Error("Open did not close the connection")
-	}
-}
-
-func TestOpenDialFails(t *testing.T) {
-	cfg := newDriftConfig(t.TempDir())
-	dial := func() (command.HandlerServiceClient, func(), error) { return nil, nil, errors.New("no socket") }
-	_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t), "198.51.100.7",
-		slog.New(slog.DiscardHandler))
-	if err == nil || !strings.Contains(err.Error(), "connecting to xray") {
-		t.Errorf("Open error = %v, want the connect error", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			closed := false
+			dial := func() (command.HandlerServiceClient, func(), error) {
+				if tt.service == nil {
+					return nil, nil, errors.New("no socket")
+				}
+				return tt.service, func() { closed = true }, nil
+			}
+			cfg := newDriftConfig(t.TempDir())
+			_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t),
+				"198.51.100.7", slog.New(slog.DiscardHandler))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Open error = %v, want one with %q", err, tt.wantErr)
+			}
+			if closed != tt.wantClosed {
+				t.Errorf("connection closed = %v, want %v", closed, tt.wantClosed)
+			}
+		})
 	}
 }
 
@@ -706,7 +667,7 @@ func TestSessionApplyPartialFailureConverges(t *testing.T) {
 }
 
 func TestVMessEchoIsNoChange(t *testing.T) {
-	in := Inbound{Tag: "vm", Protocol: "vmess"}
+	in := inbound{Tag: "vm", Protocol: "vmess"}
 	e := idEntry()
 	service := newUserService(nil)
 	// Xray stores a VMess account with SecuritySettings added.
@@ -714,7 +675,7 @@ func TestVMessEchoIsNoChange(t *testing.T) {
 		Id:               e.ID.String(),
 		SecuritySettings: &protocol.SecurityConfig{Type: protocol.SecurityType_AES128_GCM},
 	})}}
-	session := &Session{client: service, byTag: map[string]Inbound{"vm": in}, log: slog.New(slog.DiscardHandler)}
+	session := &Session{client: service, byTag: map[string]inbound{"vm": in}, log: slog.New(slog.DiscardHandler)}
 	st := newState()
 	st.Xray["vm/alice"] = e
 
@@ -723,39 +684,6 @@ func TestVMessEchoIsNoChange(t *testing.T) {
 	}
 	if service.alters != 0 {
 		t.Errorf("AlterInbound calls = %d, want 0", service.alters)
-	}
-}
-
-func TestProtocolCredential(t *testing.T) {
-	id := uuid.New()
-	tests := []struct {
-		name     string
-		in       Inbound
-		entry    state.XrayEntry
-		want     string
-		wrongFor string // protocol whose credential function must return "" for this account
-	}{
-		{"vless vision", Inbound{Protocol: "vless", Network: "raw", Security: "reality"},
-			state.XrayEntry{ID: id}, id.String() + " xtls-rprx-vision", "trojan"},
-		{"vless ws", Inbound{Protocol: "vless", Network: "ws", Security: "tls"},
-			state.XrayEntry{ID: id}, id.String() + " ", "vmess"},
-		{"vless raw without security", Inbound{Protocol: "vless", Network: "raw", Security: "none"},
-			state.XrayEntry{ID: id}, id.String() + " ", "hysteria"},
-		{"vmess", Inbound{Protocol: "vmess"}, state.XrayEntry{ID: id}, id.String(), "vless"},
-		{"trojan", Inbound{Protocol: "trojan"}, state.XrayEntry{Password: "pw"}, "pw", "hysteria"},
-		{"hysteria", Inbound{Protocol: "hysteria"}, state.XrayEntry{Password: "pw"}, "pw", "trojan"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			spec := protocols[tt.in.Protocol]
-			account := spec.account(tt.in, tt.entry)
-			if got := spec.credential(account); got != tt.want {
-				t.Errorf("credential = %q, want %q", got, tt.want)
-			}
-			if got := protocols[tt.wrongFor].credential(account); got != "" {
-				t.Errorf("%s credential of a %s account = %q, want empty", tt.wrongFor, tt.in.Protocol, got)
-			}
-		})
 	}
 }
 

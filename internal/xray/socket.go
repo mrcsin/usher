@@ -22,7 +22,8 @@ func removeStaleSocket(socketPath string) (bool, error) {
 	before, err := os.Lstat(socketPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return false, fmt.Errorf("checking xray socket: %w", err)
 	}
 	if before.Mode()&fs.ModeSocket == 0 {
@@ -65,7 +66,7 @@ func removeStaleSocket(socketPath string) (bool, error) {
 func connectionRefused(socketPath string) bool {
 	conn, err := net.DialTimeout("unix", socketPath, dialTimeout)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		return false
 	}
 	return errors.Is(err, syscall.ECONNREFUSED)

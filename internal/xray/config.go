@@ -21,10 +21,11 @@ import (
 	"github.com/mrcsin/usher/internal/config"
 )
 
-// Inbound is one managed inbound of the Xray server config. Raw is the inbound object with the
+// inbound is one managed inbound of the Xray server config. Raw is the inbound object with the
 // config aliases normalized to their canonical names. A non-nil Err means the inbound failed
-// validation and must not be used.
-type Inbound struct {
+// validation. Unless hintsOnly is set, it must not be used; with hintsOnly the drift check and
+// the revoke of foreign users still use it.
+type inbound struct {
 	Tag      string
 	Protocol string // lower case: vless, hysteria, vmess or trojan
 	Port     int
@@ -33,7 +34,7 @@ type Inbound struct {
 	// ServerName is the name the client sends: x-usher.sni, else the first usable Reality
 	// serverNames entry or the tlsSettings serverName. It is empty when security is none.
 	ServerName string
-	Hints      Hints
+	Hints      hints
 	Raw        map[string]any
 	Err        error
 	// hintsOnly is true when Err comes from the x-usher block alone: the rest of the inbound
@@ -41,9 +42,9 @@ type Inbound struct {
 	hintsOnly bool
 }
 
-// Hints is the x-usher block of an inbound with the defaults that do not depend on usher's
+// hints is the x-usher block of an inbound with the defaults that do not depend on usher's
 // environment applied. An empty Address means USHER_HOST.
-type Hints struct {
+type hints struct {
 	Address     string
 	Port        int
 	Fingerprint string
@@ -53,12 +54,21 @@ type Hints struct {
 }
 
 const (
-	// TrustCA makes the client verify the server certificate against its CA roots.
-	TrustCA = "ca"
-	// TrustPin makes the client also pin the leaf certificate.
-	TrustPin = "pin"
+	// trustCA makes the client verify the server certificate against its CA roots.
+	trustCA = "ca"
+	// trustPin makes the client also pin the leaf certificate.
+	trustPin = "pin"
 
 	defaultFingerprint = "chrome"
+
+	protocolVLESS    = "vless"
+	protocolVMess    = "vmess"
+	protocolTrojan   = "trojan"
+	protocolHysteria = "hysteria"
+
+	securityNone    = "none"
+	securityTLS     = "tls"
+	securityReality = "reality"
 )
 
 var (
@@ -86,11 +96,11 @@ func silenceXrayLog() {
 	silenceOnce.Do(func() { log.RegisterHandler(discardLog{}) })
 }
 
-// ReadConfig reads the Xray server config at path and returns its managed inbounds in file order.
+// readConfig reads the Xray server config at path and returns its managed inbounds in file order.
 // Inbounds of other protocols and inbounds without a tag are skipped. An inbound that fails
 // validation is returned with Err set, so the caller can keep its files. An error means the file
 // as a whole is unusable.
-func ReadConfig(path string) ([]Inbound, error) {
+func readConfig(path string) ([]inbound, error) {
 	silenceXrayLog()
 	f, err := os.Open(path)
 	if err != nil {
@@ -105,7 +115,7 @@ func ReadConfig(path string) ([]Inbound, error) {
 		return nil, fmt.Errorf("parsing xray config %s: %w", path, err)
 	}
 
-	var inbounds []Inbound
+	var inbounds []inbound
 	seen := map[string]bool{}
 	for i, data := range file.Inbounds {
 		raw, err := decodeObject(data)
@@ -118,7 +128,7 @@ func ReadConfig(path string) ([]Inbound, error) {
 		if _, managed := protocols[protocol]; tag == "" || !managed {
 			continue
 		}
-		in := Inbound{Tag: tag, Protocol: protocol, Raw: raw}
+		in := inbound{Tag: tag, Protocol: protocol, Raw: raw}
 		switch {
 		case seen[tag]:
 			in.Err = fmt.Errorf("inbound %q: tag: defined twice", tag)
@@ -131,6 +141,17 @@ func ReadConfig(path string) ([]Inbound, error) {
 		inbounds = append(inbounds, in)
 	}
 	return inbounds, nil
+}
+
+// decodeInbound decodes an inbound object as Xray's config reader does.
+func decodeInbound(raw map[string]any) (conf.InboundDetourConfig, error) {
+	var detour conf.InboundDetourConfig
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return detour, fmt.Errorf("encoding the inbound: %w", err)
+	}
+	err = json.Unmarshal(encoded, &detour)
+	return detour, err
 }
 
 func decodeObject(data []byte) (map[string]any, error) {
@@ -148,7 +169,7 @@ func decodeObject(data []byte) (map[string]any, error) {
 
 // validate normalizes in.Raw, checks it against what the backend supports and fills the derived
 // fields. Every error names the field and never quotes a value.
-func (in *Inbound) validate() error {
+func (in *inbound) validate() error {
 	fail := func(field, reason string) error {
 		return fmt.Errorf("inbound %q: %s: %s", in.Tag, field, reason)
 	}
@@ -169,7 +190,7 @@ func (in *Inbound) validate() error {
 	if err := in.checkUsersEmpty(settings); err != nil {
 		return fail("settings.clients", err.Error())
 	}
-	if in.Protocol == "vless" && lowerString(settings["decryption"]) != "none" {
+	if in.Protocol == protocolVLESS && lowerString(settings["decryption"]) != "none" {
 		return fail("settings.decryption", `want "none"`)
 	}
 
@@ -189,19 +210,14 @@ func (in *Inbound) validate() error {
 	if field, reason := in.checkXHTTP(stream); field != "" {
 		return fail(field, reason)
 	}
-	if in.Security == "reality" {
+	if in.Security == securityReality {
 		if _, _, field, reason := realityKeys(object(stream["realitySettings"])); field != "" {
 			return fail("streamSettings.realitySettings."+field, reason)
 		}
 	}
 	// The decode catches field type errors that the checks above do not look at. Xray's decoders
 	// can quote the value they reject, so the error names the Go field of a type mismatch at most.
-	encoded, err := json.Marshal(in.Raw)
-	if err != nil {
-		return fail("inbound", "cannot be encoded")
-	}
-	var detour conf.InboundDetourConfig
-	if err := json.Unmarshal(encoded, &detour); err != nil {
+	if _, err := decodeInbound(in.Raw); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
 			return fail("inbound", "does not decode as an Xray inbound: wrong type at "+typeErr.Field)
@@ -217,7 +233,7 @@ func (in *Inbound) validate() error {
 	return nil
 }
 
-func (in *Inbound) singlePort() (int, error) {
+func (in *inbound) singlePort() (int, error) {
 	number, ok := in.Raw["port"].(json.Number)
 	if !ok {
 		return 0, errors.New("want a single integer")
@@ -229,7 +245,7 @@ func (in *Inbound) singlePort() (int, error) {
 	return port, nil
 }
 
-func (in *Inbound) settings() (map[string]any, error) {
+func (in *inbound) settings() (map[string]any, error) {
 	v, present := in.Raw["settings"]
 	if !present {
 		settings := map[string]any{}
@@ -245,8 +261,8 @@ func (in *Inbound) settings() (map[string]any, error) {
 
 // checkUsersEmpty folds the Hysteria alias users into clients and requires the list to be empty,
 // because usher owns every user of the inbound.
-func (in *Inbound) checkUsersEmpty(settings map[string]any) error {
-	if in.Protocol == "hysteria" {
+func (in *inbound) checkUsersEmpty(settings map[string]any) error {
+	if in.Protocol == protocolHysteria {
 		if users, ok := settings["users"]; ok {
 			if clients, both := settings["clients"]; both && !isEmptyList(clients) {
 				return errors.New("users and clients are both set")
@@ -269,7 +285,7 @@ func isEmptyList(v any) bool {
 // normalizeStream rewrites the aliases of streamSettings to their canonical names and fills in
 // Network and Security. It returns the streamSettings object, a detached empty one when the inbound
 // has none.
-func (in *Inbound) normalizeStream() (map[string]any, error) {
+func (in *inbound) normalizeStream() (map[string]any, error) {
 	v, present := in.Raw["streamSettings"]
 	stream, ok := v.(map[string]any)
 	if present && !ok {
@@ -315,7 +331,7 @@ func (in *Inbound) normalizeStream() (map[string]any, error) {
 		delete(stream, alias)
 	}
 
-	security := "none"
+	security := securityNone
 	if v, ok := stream["security"]; ok {
 		s, isString := v.(string)
 		if !isString {
@@ -330,16 +346,16 @@ func (in *Inbound) normalizeStream() (map[string]any, error) {
 	return stream, nil
 }
 
-func (in *Inbound) checkTransport(stream map[string]any) (field, reason string) {
+func (in *inbound) checkTransport(stream map[string]any) (field, reason string) {
 	if !networks[in.Network] {
 		return "streamSettings.network", "unsupported transport"
 	}
 	switch in.Security {
-	case "none", "tls", "reality":
+	case securityNone, securityTLS, securityReality:
 	default:
 		return "streamSettings.security", "want none, tls or reality"
 	}
-	if (in.Protocol == "hysteria") != (in.Network == "hysteria") {
+	if (in.Protocol == protocolHysteria) != (in.Network == "hysteria") {
 		return "streamSettings.network", "hysteria transport and hysteria protocol go together"
 	}
 	if in.Network == "raw" {
@@ -351,11 +367,11 @@ func (in *Inbound) checkTransport(stream map[string]any) (field, reason string) 
 	return "", ""
 }
 
-func (in *Inbound) checkHysteria(stream map[string]any) (field, reason string) {
-	if in.Protocol != "hysteria" {
+func (in *inbound) checkHysteria(stream map[string]any) (field, reason string) {
+	if in.Protocol != protocolHysteria {
 		return "", ""
 	}
-	if in.Security != "tls" {
+	if in.Security != securityTLS {
 		return "streamSettings.security", `hysteria needs "tls"`
 	}
 	if !isVersion2(object(in.Raw["settings"])["version"]) {
@@ -377,7 +393,7 @@ func isVersion2(v any) bool {
 }
 
 // checkMasks allows only salamander without packetSize in the udp list, and quicParams.
-func (in *Inbound) checkMasks(stream map[string]any) (field, reason string) {
+func (in *inbound) checkMasks(stream map[string]any) (field, reason string) {
 	mask, present := stream["finalmask"]
 	if !present {
 		return "", ""
@@ -402,13 +418,13 @@ func (in *Inbound) checkMasks(stream map[string]any) (field, reason string) {
 			return "streamSettings.finalmask.udp.settings.packetSize", "unsupported with salamander"
 		}
 	}
-	if in.Protocol != "hysteria" && len(udp) > 0 {
+	if in.Protocol != protocolHysteria && len(udp) > 0 {
 		return "streamSettings.finalmask.udp", "salamander is supported on hysteria only"
 	}
 	return "", ""
 }
 
-func (in *Inbound) checkXHTTP(stream map[string]any) (field, reason string) {
+func (in *inbound) checkXHTTP(stream map[string]any) (field, reason string) {
 	if in.Network != "xhttp" {
 		return "", ""
 	}
@@ -438,7 +454,7 @@ type xUsher struct {
 }
 
 // readHints decodes x-usher, checks it against the inbound and fills Hints and ServerName.
-func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
+func (in *inbound) readHints(stream map[string]any) (field, reason string) {
 	var hint xUsher
 	if block, ok := in.Raw["x-usher"]; ok {
 		encoded, err := json.Marshal(block)
@@ -463,23 +479,23 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 	trust := hint.Trust
 	switch trust {
 	case "":
-		trust = TrustCA
-	case TrustCA, TrustPin:
+		trust = trustCA
+	case trustCA, trustPin:
 	default:
 		return "x-usher.trust", `want "ca" or "pin"`
 	}
-	if trust == TrustPin && in.Security != "tls" {
+	if trust == trustPin && in.Security != securityTLS {
 		return "x-usher.trust", `"pin" needs security "tls"`
 	}
 	if hint.PinSHA256 != "" {
-		if trust != TrustPin {
+		if trust != trustPin {
 			return "x-usher.pin_sha256", `valid only with trust "pin"`
 		}
 		if !sha256Pattern.MatchString(hint.PinSHA256) {
 			return "x-usher.pin_sha256", "want 64 hex characters"
 		}
 	}
-	if trust == TrustPin && hint.PinSHA256 == "" && !hasInlineCertificate(stream) {
+	if trust == trustPin && hint.PinSHA256 == "" && !hasInlineCertificate(stream) {
 		return "x-usher.pin_sha256", `trust "pin" needs it or an inline certificate`
 	}
 
@@ -487,12 +503,12 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 	if fingerprint == "" {
 		fingerprint = defaultFingerprint
 	}
-	if in.Security == "reality" && !slices.Contains(realityFingerprints, fingerprint) {
+	if in.Security == securityReality && !slices.Contains(realityFingerprints, fingerprint) {
 		return "x-usher.fingerprint", "reality supports chrome, firefox and safari only"
 	}
 
 	if hint.HopPorts != "" {
-		if in.Protocol != "hysteria" {
+		if in.Protocol != protocolHysteria {
 			return "x-usher.hop_ports", "valid on hysteria only"
 		}
 		if !validHopPorts(hint.HopPorts) {
@@ -505,7 +521,7 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 		return field, reason
 	}
 	in.ServerName = serverName
-	in.Hints = Hints{
+	in.Hints = hints{
 		Address:     hint.Address,
 		Port:        port,
 		Fingerprint: fingerprint,
@@ -519,9 +535,9 @@ func (in *Inbound) readHints(stream map[string]any) (field, reason string) {
 // serverName resolves the name the client sends. An explicit x-usher.sni wins over the server
 // config on TLS. Reality looks the name up in serverNames by exact match, so there the override
 // must be one of the entries; it is how an operator picks one of several names.
-func (in *Inbound) serverName(stream map[string]any, override string) (name, field, reason string) {
+func (in *inbound) serverName(stream map[string]any, override string) (name, field, reason string) {
 	switch in.Security {
-	case "tls":
+	case securityTLS:
 		name = override
 		if name == "" {
 			name, _ = object(stream["tlsSettings"])["serverName"].(string)
@@ -529,7 +545,7 @@ func (in *Inbound) serverName(stream map[string]any, override string) (name, fie
 		if name == "" {
 			return "", "x-usher.sni", "tls needs it or tlsSettings.serverName"
 		}
-	case "reality":
+	case securityReality:
 		names, _ := object(stream["realitySettings"])["serverNames"].([]any)
 		if override != "" {
 			if !slices.Contains(names, any(override)) || strings.Contains(override, "*") {

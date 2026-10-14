@@ -17,7 +17,7 @@ const passwordBytes = 32
 // enroll makes st hold a credential of the kind the inbound's protocol uses for every user in
 // users. It creates the missing ones and never changes an existing entry; an existing entry of the
 // wrong kind is an error. It reports whether it created any. On error st is left as it was.
-func enroll(st *state.State, in Inbound, users []string) (bool, error) {
+func enroll(st *state.State, in inbound, users []string) (bool, error) {
 	spec := protocols[in.Protocol]
 	created := make(map[string]state.XrayEntry)
 	for _, user := range users {

@@ -262,12 +262,12 @@ func assertOffRepeatedly(t *testing.T, user string, among []route) {
 
 // removedLine matches the usher log line that reports the removal of a user from an inbound.
 func removedLine(tag, user string) string {
-	return fmt.Sprintf(`users changed" inbound=%s .*removed="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
+	return fmt.Sprintf(`users changed" interface=%s .*removed="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
 }
 
 // addedLine matches the usher log line that reports the addition of a user to an inbound.
 func addedLine(tag, user string) string {
-	return fmt.Sprintf(`users changed" inbound=%s added="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
+	return fmt.Sprintf(`users changed" interface=%s added="?\[[^\]]*%s/%s[ \]]`, tag, tag, user)
 }
 
 // TestXray runs its subtests in order; each one starts from the state the previous one left.

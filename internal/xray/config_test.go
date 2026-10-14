@@ -1,41 +1,44 @@
 package xray
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestReadConfigShapes(t *testing.T) {
-	inbounds, err := ReadConfig("testdata/server.json")
+	inbounds, err := readConfig("testdata/server.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Inbound{
+	want := []inbound{
 		{Tag: "vless-reality", Protocol: "vless", Port: 443, Network: "raw", Security: "reality",
 			ServerName: "www.example.com",
-			Hints:      Hints{Address: "203.0.113.10", Port: 443, Fingerprint: "chrome", Trust: "ca"}},
+			Hints:      hints{Address: "203.0.113.10", Port: 443, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "xh", Protocol: "vless", Port: 2053, Network: "xhttp", Security: "tls",
-			ServerName: "xh.example.com", Hints: Hints{Port: 2053, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "xh.example.com", Hints: hints{Port: 2053, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "xh-extra", Protocol: "vless", Port: 2054, Network: "xhttp", Security: "tls",
-			ServerName: "xh.example.com", Hints: Hints{Port: 2054, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "xh.example.com", Hints: hints{Port: 2054, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "ws", Protocol: "vless", Port: 2083, Network: "ws", Security: "tls",
-			ServerName: "ws.example.com", Hints: Hints{Port: 2083, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "ws.example.com", Hints: hints{Port: 2083, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "grpc", Protocol: "vless", Port: 2087, Network: "grpc", Security: "tls",
-			ServerName: "g.example.com", Hints: Hints{Port: 2087, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "g.example.com", Hints: hints{Port: 2087, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "hu", Protocol: "vless", Port: 2088, Network: "httpupgrade", Security: "tls",
-			ServerName: "hu.example.com", Hints: Hints{Port: 2088, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "hu.example.com", Hints: hints{Port: 2088, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "hy2", Protocol: "hysteria", Port: 8443, Network: "hysteria", Security: "tls",
 			ServerName: "hy.example.com",
-			Hints: Hints{Port: 8443, Fingerprint: "chrome", Trust: "pin", HopPorts: "20000-30000",
+			Hints: hints{Port: 8443, Fingerprint: "chrome", Trust: "pin", HopPorts: "20000-30000",
 				PinSHA256: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"}},
 		{Tag: "vmess-ws", Protocol: "vmess", Port: 2096, Network: "ws", Security: "none",
-			Hints: Hints{Port: 2096, Fingerprint: "chrome", Trust: "ca"}},
+			Hints: hints{Port: 2096, Fingerprint: "chrome", Trust: "ca"}},
 		{Tag: "trojan", Protocol: "trojan", Port: 8444, Network: "raw", Security: "tls",
-			ServerName: "t.example.com", Hints: Hints{Port: 8444, Fingerprint: "chrome", Trust: "ca"}},
+			ServerName: "t.example.com", Hints: hints{Port: 8444, Fingerprint: "chrome", Trust: "ca"}},
 	}
 	if len(inbounds) != len(want) {
 		t.Fatalf("got %d inbounds, want %d", len(inbounds), len(want))
@@ -55,26 +58,26 @@ func TestReadConfigShapes(t *testing.T) {
 	}
 }
 
-func summary(in Inbound) string {
+func summary(in inbound) string {
 	return fmt.Sprintf("%s %s %d %s %s %q %+v", in.Tag, in.Protocol, in.Port, in.Network, in.Security,
 		in.ServerName, in.Hints)
 }
 
 func TestReadConfigAliases(t *testing.T) {
-	inbounds, err := ReadConfig("testdata/aliases.json")
+	inbounds, err := readConfig("testdata/aliases.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	byTag := map[string]Inbound{}
+	byTag := map[string]inbound{}
 	for _, in := range inbounds {
 		byTag[in.Tag] = in
 	}
 	tests := []struct {
 		tag     string
 		network string
-		check   func(t *testing.T, in Inbound)
+		check   func(t *testing.T, in inbound)
 	}{
-		{"a1", "xhttp", func(t *testing.T, in Inbound) { // method wins over network
+		{"a1", "xhttp", func(t *testing.T, in inbound) { // method wins over network
 			stream := object(in.Raw["streamSettings"])
 			if _, ok := stream["method"]; ok {
 				t.Error("method kept")
@@ -87,12 +90,12 @@ func TestReadConfigAliases(t *testing.T) {
 			}
 		}},
 		{"a2", "ws", nil},
-		{"a3", "raw", func(t *testing.T, in Inbound) {
+		{"a3", "raw", func(t *testing.T, in inbound) {
 			if _, ok := object(in.Raw["streamSettings"])["rawSettings"]; !ok {
 				t.Error("tcpSettings not moved to rawSettings")
 			}
 		}},
-		{"a4", "hysteria", func(t *testing.T, in Inbound) {
+		{"a4", "hysteria", func(t *testing.T, in inbound) {
 			settings := object(in.Raw["settings"])
 			if _, ok := settings["users"]; ok {
 				t.Error("users kept")
@@ -163,7 +166,7 @@ func setPath(m map[string]any, path string, value any) {
 	m[last] = value
 }
 
-func readOne(t *testing.T, inbound map[string]any) Inbound {
+func readOne(t *testing.T, inbound map[string]any) inbound {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{"inbounds": []any{inbound}})
 	if err != nil {
@@ -173,7 +176,7 @@ func readOne(t *testing.T, inbound map[string]any) Inbound {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inbounds, err := ReadConfig(path)
+	inbounds, err := readConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,9 +299,9 @@ func TestReadConfigAcceptsEdgeShapes(t *testing.T) {
 		name  string
 		kind  string
 		set   map[string]any
-		check func(t *testing.T, in Inbound)
+		check func(t *testing.T, in inbound)
 	}{
-		{"no streamSettings", "vless-tls", map[string]any{"streamSettings": nil}, func(t *testing.T, in Inbound) {
+		{"no streamSettings", "vless-tls", map[string]any{"streamSettings": nil}, func(t *testing.T, in inbound) {
 			if in.Network != "raw" || in.Security != "none" || in.ServerName != "" {
 				t.Errorf("got %s/%s/%q", in.Network, in.Security, in.ServerName)
 			}
@@ -307,19 +310,19 @@ func TestReadConfigAcceptsEdgeShapes(t *testing.T) {
 			}
 		}},
 		{"sni override picks one of the serverNames", "reality", map[string]any{
-			"x-usher.sni": "b.example.com"}, func(t *testing.T, in Inbound) {
+			"x-usher.sni": "b.example.com"}, func(t *testing.T, in inbound) {
 			if in.ServerName != "b.example.com" {
 				t.Errorf("ServerName = %q", in.ServerName)
 			}
 		}},
 		{"sni override beside wildcard entries", "reality", map[string]any{
 			"streamSettings.realitySettings.serverNames": []any{"*.example.com", "front.example.com"},
-			"x-usher.sni": "front.example.com"}, func(t *testing.T, in Inbound) {
+			"x-usher.sni": "front.example.com"}, func(t *testing.T, in inbound) {
 			if in.ServerName != "front.example.com" {
 				t.Errorf("ServerName = %q", in.ServerName)
 			}
 		}},
-		{"reality safari", "reality", map[string]any{"x-usher.fingerprint": "safari"}, func(t *testing.T, in Inbound) {
+		{"reality safari", "reality", map[string]any{"x-usher.fingerprint": "safari"}, func(t *testing.T, in inbound) {
 			if in.Hints.Fingerprint != "safari" {
 				t.Errorf("fingerprint = %q", in.Hints.Fingerprint)
 			}
@@ -327,13 +330,13 @@ func TestReadConfigAcceptsEdgeShapes(t *testing.T) {
 		{"pin from inline certificate", "vless-tls", map[string]any{
 			"x-usher.trust": "pin",
 			"streamSettings.tlsSettings.certificates": []any{map[string]any{"certificate": []any{"-----BEGIN CERTIFICATE-----"}}}},
-			func(t *testing.T, in Inbound) {
-				if in.Hints.Trust != TrustPin || in.Hints.PinSHA256 != "" {
+			func(t *testing.T, in inbound) {
+				if in.Hints.Trust != trustPin || in.Hints.PinSHA256 != "" {
 					t.Errorf("hints = %+v", in.Hints)
 				}
 			}},
 		{"x-usher port and sni", "vless-tls", map[string]any{"x-usher.port": 8443, "x-usher.sni": "o.example.com"},
-			func(t *testing.T, in Inbound) {
+			func(t *testing.T, in inbound) {
 				if in.Hints.Port != 8443 || in.ServerName != "o.example.com" || in.Port != 443 {
 					t.Errorf("port %d hints %+v sni %q", in.Port, in.Hints, in.ServerName)
 				}
@@ -412,7 +415,7 @@ func TestReadConfigSkipsAndDuplicates(t *testing.T) {
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inbounds, err := ReadConfig(path)
+	inbounds, err := readConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,8 +441,50 @@ func TestReadConfigFileErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{filepath.Join(dir, "missing.json"), bad, notObject} {
-		if _, err := ReadConfig(path); err == nil {
+		if _, err := readConfig(path); err == nil {
 			t.Errorf("%s: no error", filepath.Base(path))
+		}
+	}
+}
+
+func TestDeployExampleConfig(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "xray", "config.json")
+	wantTags := []string{"vless-reality", "hysteria2"}
+
+	// As shipped, the placeholders make the Reality inbound fail on its key.
+	inbounds, err := readConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, in := range inbounds {
+		tags = append(tags, in.Tag)
+	}
+	if !slices.Equal(tags, wantTags) {
+		t.Errorf("tags = %v, want %v", tags, wantTags)
+	}
+	if inbounds[0].Err == nil || !strings.Contains(inbounds[0].Err.Error(), "privateKey") {
+		t.Errorf("shipped Reality inbound error = %v, want one about privateKey", inbounds[0].Err)
+	}
+
+	// With the placeholder key replaced, every inbound is valid.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	replaced := strings.ReplaceAll(string(data), "REPLACE_WITH_X25519_PRIVATE_KEY", key)
+	filled := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(filled, []byte(replaced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inbounds, err = readConfig(filled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range inbounds {
+		if in.Err != nil {
+			t.Errorf("inbound %s: %v", in.Tag, in.Err)
 		}
 	}
 }
