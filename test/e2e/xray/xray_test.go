@@ -249,6 +249,9 @@ func startClient(t *testing.T, user string) {
 // one transient error cannot stand for a removed user.
 func assertOffRepeatedly(t *testing.T, user string, among []route) {
 	t.Helper()
+	waitFor(t, connectTimeout, "the proxies of the client of "+user, func() error {
+		return proxiesReachable(user, among)
+	})
 	for range failedRounds {
 		if err := noneWorks(user, among); err != nil {
 			t.Fatal(err)
@@ -397,15 +400,32 @@ func testDrift(t *testing.T) {
 		return allWork("alice", routesOf(tagReality))
 	})
 
-	// With the file back in step with xray, the next tick has no failure.
+	// With the file back in step with xray, no tick fails. Adding bob proves that a pass ran and
+	// opened xray after the file was restored.
 	if err := srv.writeConfig(project.path(xrayDir), realityShortID); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Second)
 	mark = markLogs(t)
 	time.Sleep(refillTick)
-	if failed := logsSince(t, mark); strings.Contains(failed, "interface failed") {
-		t.Fatalf("a tick failed after the drift was undone:\n%s", failed)
+	writeUsherConfig(t, "alice", "bob")
+	for _, tag := range tags {
+		waitForLog(t, mark, changeTimeout, addedLine(tag, "bob"))
+	}
+	assertNoFailureSince(t, mark, "the drift was undone")
+}
+
+// assertNoFailureSince fails the test when usher logged a failed interface, a backend that is down
+// or any error after the mark. The caller first makes usher log a change, which proves that a
+// pass ran: a pass that succeeds logs nothing else.
+func assertNoFailureSince(t *testing.T, mark logMark, what string) {
+	t.Helper()
+	time.Sleep(2 * time.Second) // the pass that logged the change finishes its other inbounds
+	logs := logsSince(t, mark)
+	for _, bad := range []string{"interface failed", "backend is down", "level=ERROR"} {
+		if strings.Contains(logs, bad) {
+			t.Fatalf("usher logged %q after %s:\n%s", bad, what, logs)
+		}
 	}
 }
 
@@ -431,9 +451,12 @@ func testCertificateRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(refillTick)
-	if failed := logsSince(t, mark); strings.Contains(failed, "interface failed") {
-		t.Fatalf("a tick failed after the certificate was rewritten:\n%s", failed)
+	// Removing bob proves that a pass ran and opened xray after the rewrite.
+	writeUsherConfig(t, "alice")
+	for _, tag := range tags {
+		waitForLog(t, mark, changeTimeout, removedLine(tag, "bob"))
 	}
+	assertNoFailureSince(t, mark, "the certificate was rewritten")
 	waitFor(t, restartTimeout, "a page through ws after the rewrite", func() error {
 		return allWork("alice", routesOf(tagWS))
 	})

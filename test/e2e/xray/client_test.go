@@ -224,8 +224,31 @@ func allWork(user string, among []route) error {
 	return errors.Join(errs...)
 }
 
-// noneWorks returns nil when every route of the list fails to return the page.
+// proxyReachable reports why the proxy port of the route on the user's client is not open.
+func proxyReachable(user string, r route) error {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHosts[user], strconv.Itoa(r.port)), requestTimeout)
+	if err != nil {
+		return fmt.Errorf("%s of %s: proxy is not reachable: %w", r, user, err)
+	}
+	return conn.Close()
+}
+
+// proxiesReachable returns nil when the proxy port of every route of the list is open.
+func proxiesReachable(user string, among []route) error {
+	var errs []error
+	for _, r := range among {
+		errs = append(errs, proxyReachable(user, r))
+	}
+	return errors.Join(errs...)
+}
+
+// noneWorks returns nil when the proxy of every route of the list is reachable and the request
+// through it fails. A refused connection to the proxy of a client that is still starting is an
+// error, not a failed route.
 func noneWorks(user string, among []route) error {
+	if err := proxiesReachable(user, among); err != nil {
+		return err
+	}
 	results := fetchAll(user, among)
 	var errs []error
 	for _, r := range among {

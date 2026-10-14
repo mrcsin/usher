@@ -61,5 +61,7 @@ jobs:
       - name: e2e test
         run: go test -tags e2e -count=1 -v ./test/e2e/
 
+      # Needs no kernel module; runs even when the awg e2e step failed.
       - name: xray e2e test
+        if: ${{ !cancelled() }}
         run: go test -tags e2e -count=1 -v ./test/e2e/xray/
