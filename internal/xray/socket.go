@@ -17,18 +17,23 @@ func removeStaleSocket(socketPath string) (bool, error) {
 	} else if err != nil {
 		return false, fmt.Errorf("checking xray socket: %w", err)
 	}
-	lock, err := os.OpenFile(socketPath+".lock", os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
+	// Xray creates the lock as root with mode 0644, so usher opens it read-only; flock needs no
+	// write access. A socket without a lock file has no live owner either.
+	lock, err := os.Open(socketPath + ".lock")
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
 		return false, fmt.Errorf("opening xray socket lock: %w", err)
-	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return false, nil
+	default:
+		defer lock.Close()
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			if errors.Is(err, syscall.EWOULDBLOCK) {
+				return false, nil
+			}
+			return false, fmt.Errorf("locking xray socket: %w", err)
 		}
-		return false, fmt.Errorf("locking xray socket: %w", err)
+		defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck // closing the file releases it
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck // closing the file releases it
 	if err := os.Remove(socketPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, fmt.Errorf("removing stale xray socket: %w", err)
 	}

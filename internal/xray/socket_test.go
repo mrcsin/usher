@@ -39,6 +39,26 @@ func TestRemoveStaleSocket(t *testing.T) {
 			t.Fatalf("socket still there: %v", err)
 		}
 	})
+	t.Run("read-only lock file is enough", func(t *testing.T) {
+		path := staleSocket(t)
+		if err := os.WriteFile(path+".lock", nil, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := removeStaleSocket(path)
+		if err != nil || !removed {
+			t.Fatalf("removed=%v err=%v", removed, err)
+		}
+	})
+	t.Run("missing lock file removes the socket", func(t *testing.T) {
+		path := staleSocket(t)
+		removed, err := removeStaleSocket(path)
+		if err != nil || !removed {
+			t.Fatalf("removed=%v err=%v", removed, err)
+		}
+		if _, err := os.Lstat(path + ".lock"); !os.IsNotExist(err) {
+			t.Fatalf("lock file created: %v", err)
+		}
+	})
 	t.Run("held lock keeps the socket", func(t *testing.T) {
 		path := staleSocket(t)
 		lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)

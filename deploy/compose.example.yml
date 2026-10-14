@@ -35,7 +35,10 @@ services:
     volumes:
       # The directory, not the file: usher and Xray then both see a replaced config.
       - ./xray:/etc/xray:ro
-      - xray-sock:/run/xray
+      # A host directory that uid 1000 owns (create it before the first start), not a named volume,
+      # which belongs to root: after a crash usher unlinks the stale API socket, and that needs
+      # write access to the directory.
+      - ./xray-sock:/run/xray
   usher:
     image: ghcr.io/mrcsin/usher:v0.1.0
     restart: unless-stopped
@@ -54,7 +57,7 @@ services:
       - usher-state:/srv/usher/state
       - awg-sock:/run/awg-grpc
       - ./xray:/etc/xray:ro
-      - xray-sock:/run/xray
+      - ./xray-sock:/run/xray
     environment:
       USHER_HOST: "203.0.113.10"
       USHER_AWG_SOCKET: /run/awg-grpc/awg.sock
@@ -63,5 +66,4 @@ services:
       USHER_XRAY_CONFIG: /etc/xray/config.json
 volumes:
   awg-sock:
-  xray-sock:
   usher-state:
