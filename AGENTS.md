@@ -29,7 +29,7 @@ Table-driven tests sit beside the source as `*_test.go`; filesystem tests use `t
 
 The e2e suite in `test/e2e` carries `//go:build e2e`. It needs Docker and a host with the
 `amneziawg` module loaded, so it runs on a Linux host, not on macOS. It uses the published
-`awg-grpc` image, builds usher from the tree and runs the production interval constants:
+`awg-grpc` image, builds usher from the tree and keeps the production intervals:
 
 ```sh
 GOOS=linux GOARCH=amd64 go test -c -tags e2e -o e2e.test ./test/e2e
@@ -69,7 +69,8 @@ scripts/format.sh
 ```
 
 Run before presenting changes. It checks gofmt and runs `go vet` without tags and with the `e2e`
-tag. `gofmt -w .` fixes formatting. The pre-commit hook and the CI `check` job run the same script.
+tag. `gofmt -w .` fixes formatting. The CI `check` job runs the same script; the pre-commit hook
+runs it only when a `.go` file is staged.
 
 After a change to a shell script or a workflow, also run:
 
@@ -96,41 +97,28 @@ the notes of the annotated tag.
 
 ## Conventions
 
-- A private key, a preshared key or a `client_params` value is never logged, and an error message
-  never quotes one. A public key without an entry is logged as base64.
-- A Reality `privateKey` or `mldsa65Seed`, a `certificateFile` or `keyFile`, a PEM key, `sockopt`,
-  a server `fallbacks` entry and a drift value never reach `clients/`, a log line or an error. A
-  drift reason names the differing part only.
-- usher never writes the Xray server config. It owns the users of the managed inbounds and
-  `clients/`.
-- `state/users.json` is the only source of secrets. The kernel and `clients/` derive from it, and
-  usher saves it before any backend's `Apply`.
-- A failure of one interface never stops the daemon; the pass logs it and goes on.
+- The secret rules and the ownership rules are the Locked decisions in
+  `docs/architecture/README.md`. Read them before touching logging, errors or `clients/`.
 - No interface without a second implementation, no exported surface only for tests.
 
 ## Layout
 
 ```
 cmd/usher/             entry point: environment, signals, run loop wiring
-internal/config/       usher.yml loader and validation
-internal/state/        users.json load and save
-internal/atomicfile/   atomic file replace shared by state and the clients mirror
-internal/pass/         settings, the Backend/Session seam, the reconcile pass
-internal/awg/          awg backend: enrollment, address allocation, .conf rendering
-internal/xray/         Xray backend: config reader, drift guard, users, mirror, rendering, stale socket
-internal/clients/      client file paths and the clients/ mirror
-internal/watch/        file poll, refill ticker and the trigger loop
-deploy/                example compose file, example Xray config, e2e compose files
-test/e2e/              awg end-to-end test through docker compose (tag e2e)
-test/e2e/xray/         Xray end-to-end test (tag e2e)
+internal/              packages, one per component of docs/architecture/overview.md
+deploy/                example compose file, usher.yml and Xray config; e2e compose files and configs
+test/e2e/              awg end-to-end test (tag e2e); xray/ holds the Xray end-to-end test
 scripts/format.sh      the Format chain (see Format)
-scripts/git-hooks/     pre-commit hook: branch guard, then scripts/format.sh
+scripts/git-hooks/     pre-commit hook: branch guard, then scripts/format.sh for staged .go files
 scripts/ci/module.sh   builds and loads the pinned kernel module in the CI e2e job
+docs/                  operator docs (xray.md, operations.md); architecture/ and plans/ (see Docs)
 .github/workflows/     ci.yml and release.yml
 Dockerfile             Go build stage and the runtime image
 ```
 
 ## Docs
 
-Stable design is in `docs/architecture/`, starting at `overview.md`. Dated plans are in
-`docs/plans/`, completed ones in `docs/plans/completed/`.
+`README.md` is the front page for operators; `docs/xray.md` holds the Xray server config contract
+and `docs/operations.md` the operator procedures. Stable design is in `docs/architecture/`,
+starting at its `README.md`, which lists the locked decisions. Dated plans are in `docs/plans/`,
+completed ones in `docs/plans/completed/`.

@@ -8,11 +8,11 @@ operator's Xray config. The operator types names only. Addresses and keys are in
 
 ## Stack
 
-Go, one binary: `usher run`. It talks gRPC to `awg-grpc` (`github.com/mrcsin/awg-grpc` v0.1.0)
-over the socket in `USHER_AWG_SOCKET`, and to Xray's `HandlerService` over the socket in
-`USHER_XRAY_SOCKET`. At least one is set. It runs in a container with no capabilities, a read-only
-root file system and uid 1000. Config parsing uses `gopkg.in/yaml.v3`. The Xray backend imports
-`xray-core` (`infra/conf`, `app/proxyman/command`) and `libxray/share`.
+Go, one binary: `usher run`. It talks gRPC to awg-grpc over the socket in `USHER_AWG_SOCKET`, and
+to Xray's `HandlerService` over the socket in `USHER_XRAY_SOCKET`. At least one is set. It runs in
+a container with no capabilities, a read-only root file system and uid 1000. The Xray backend
+builds inbounds with `xray-core` itself and renders share links with `libxray`, so the Xray image
+must match the `xray-core` version in `go.mod`.
 
 ## Components
 
@@ -20,7 +20,7 @@ root file system and uid 1000. Config parsing uses `gopkg.in/yaml.v3`. The Xray 
 |---|---|
 | `cmd/usher` | Reads the `USHER_*` environment, builds the backends, wires signals, the watcher and the pass. |
 | `internal/config` | Loads and validates `usher.yml`. |
-| `internal/state` | Loads and saves `state/users.json`, version 2. |
+| `internal/state` | Loads and saves `state/users.json`. |
 | `internal/atomicfile` | Replaces a file atomically for `state` and the `clients/` mirror. |
 | `internal/pass` | Settings, the `Backend` and `Session` seam and the reconcile pass. |
 | `internal/awg` | The awg backend: enrollment, address allocation, `.conf` rendering. |
@@ -32,37 +32,40 @@ root file system and uid 1000. Config parsing uses `gopkg.in/yaml.v3`. The Xray 
 
 A backend is a `Backend{Name, Suffixes, Open}`. `Open` returns a `Session` with `Interfaces`,
 `Prepare` (enroll users, render files), `Apply` and `Close`. `Suffixes` lists the file suffixes
-the backend owns (`.conf`; `.json` and `.txt`). A backend that fails to open is down for the pass:
-usher keeps every file with one of its suffixes. An interface name that two backends report fails
-in both. The steps below run per backend; the text names the awg calls.
+the backend owns.
+
+| Step        | awg                                              | Xray                                                        |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `Open`      | `GetStatus`                                      | read the config, remove a stale socket, `ListInbounds`, drift check |
+| `Interfaces`| every interface awg-grpc reports                 | every managed inbound tag of the config                     |
+| `Prepare`   | fails an interface that is not present           | returns the structural error of an inbound                  |
+| `Apply`     | `ApplyPeers`, `allow_empty` with no users        | `GetInboundUsers`, then `AlterInbound` per changed user     |
+| Suffixes    | `.conf`                                          | `.json`, `.txt`                                             |
 
 1. Load `usher.yml`. When it is invalid, use the last valid file of this process. With none,
    log and stop. Load `users.json`. On error, log and stop.
-2. Call `GetStatus`. On error, log and stop.
-3. For each reported interface: fail it when `present=false`. Otherwise enroll every user that
-   references it and render their configs. An enrollment or render error fails the interface.
-4. Save `users.json` when step 3 created or changed an entry.
-5. For each interface that did not fail: call `ApplyPeers` with one peer per referencing user
-   (`address/32`), with `allow_empty` when no user references the interface. An error fails the
+2. `Open` every backend. A backend that fails to open is down for this pass: usher keeps every
+   file with one of its suffixes, and the other backends go on.
+3. For each interface of each open backend: fail it when two backends report its name. Otherwise
+   `Prepare` it: enroll every user that references it and render their files. An error fails the
    interface.
+4. Save `users.json` when step 3 created or changed an entry. On error, log and stop.
+5. `Apply` each interface that did not fail. An error fails the interface.
 6. When no backend is down, log every user and interface pair that no backend reports ("interface
    is not reported by any backend").
 7. Make `clients/` equal to the rendered files of applied interfaces plus the current files of
-   failed ones.
+   failed interfaces and down backends.
 
-Two triggers start a pass: a change of `usher.yml` and a 30 s refill ticker. One goroutine runs the
-watcher loop and the passes, with the poll ticker, the settle timer and the refill ticker as cases
-of one `select`. A tick that fires during a pass waits in its ticker, which buffers one tick, so
-each source yields at most one following pass. A refill tick and a file change during one pass give
-two following passes. File polling follows `reproxy` (`app/discovery/provider/file.go`): `os.Stat`
-every 3 s, and a new modification time counts once it has stayed unchanged for 500 ms. The
-connection is opened per pass and every call has a 10 s deadline.
+A pass runs at start, after a change of `usher.yml` and at every 30 s refill tick. One goroutine
+runs the watcher loop and the passes, with the poll ticker, the settle timer and the refill ticker
+as cases of one `select`. A tick that fires during a pass waits in its ticker, which buffers one
+tick, so each source yields at most one following pass. The watcher calls `os.Stat` every 3 s, and
+a new modification time counts once it has stayed unchanged for 500 ms. Each backend opens its
+connection per pass, and every call has a 10 s deadline.
 
-## Keys and addresses
+## AmneziaWG keys and addresses
 
-- `state/users.json` is the only source of secrets. Entries are keyed `interface/user` under the
-  `awg` group. The kernel and `clients/` derive from it. usher saves it (temp file, fsync, rename,
-  directory fsync, mode 0600) only when an entry changed, and always before any backend's `Apply`.
+- Entries are keyed `interface/user` under the `awg` group of `users.json`.
 - A new entry gets an X25519 key pair (`crypto/ecdh`), 32 random PSK bytes and an address.
 - The address is the lowest host address of the interface's first IPv4 prefix that is not the
   network or broadcast address, not an interface address and not held by another entry of that
@@ -70,44 +73,10 @@ connection is opened per pass and every call has a 10 s deadline.
   changes the interface address, is reassigned and logged, and the config is rewritten.
 - Switching a user off removes the peer and the client file and keeps the entry, so the same
   name gets the same key and address back. usher never deletes entries.
-
-## Locked decisions
-
-- The scope is AmneziaWG over IPv4 and the Xray shapes in the README.
-- usher owns every interface the wrapper reports, and an unreferenced interface gets an empty
-  list.
-- A broken `usher.yml` never changes state. The last valid file is kept in memory only.
-- A file without any user and interface pair is invalid, so a truncated file cannot wipe a node.
-- A failure of one interface never stops the daemon and never blocks the others.
-- An interface without an IPv4 prefix fails only when a user references it.
-- `clients/` files of an interface that no backend reports are removed.
-- `USHER_HOST` is an IPv4 address, not a name: a client whose DNS points into the tunnel cannot
-  resolve the name again to reconnect.
-- No private key, PSK or `client_params` value is logged. A public key without an entry is logged
-  as base64.
-- No Reality `privateKey` or `mldsa65Seed`, key file, `sockopt`, `fallbacks` entry or drift value
-  is logged or written to `clients/`.
-- No subcommands besides `usher run`, no central management, no migration of existing peers.
-
-## Operations
-
-- `clients/` belongs to usher: anything not rendered from the applied state is removed. Files are
-  mode `0600`, uid 1000.
-- Changing an interface's address, key, port or obfuscation values rewrites every client config of
-  that interface; those configs are handed out again.
 - Addresses are never freed: switched-off users keep theirs. A full subnet fails the whole
   interface, refill included. awg-grpc accepts at most 1000 peers per interface.
-- `users.json` sits in the `usher-state` volume (mode `0600`, uid 1000). To re-key or delete a user:
-  `docker compose stop usher`, then
-  `docker run --rm -it -u 1000:1000 -v <project>_usher-state:/state alpine vi /state/users.json`,
-  delete the `<interface>/<user>` entry, `docker compose start usher`. A user still in `usher.yml`
-  gets new keys.
-- `USHER_HOST` is an address, not a name: a client that re-resolves a name while its DNS points
-  into the tunnel cannot reconnect.
-- Client isolation and DNS redirection belong to the service config, not to usher. For AmneziaWG:
-  `FORWARD` drops between clients in `PostUp`; a resolver on the tunnel address (for example
-  cloudflared with a DoH upstream in the `awg` network namespace) with `USHER_DNS` set to that
-  address, and optionally a `DNAT` of port 53 in `PostUp`.
+- A change of the interface key, port or `client_params` rewrites every client config of that
+  interface; those configs are handed out again.
 
 ## Xray backend
 
@@ -116,32 +85,32 @@ connection is opened per pass and every call has a 10 s deadline.
 - The operator owns one Xray server config: inbounds, outbounds, routing, `api`, certificates,
   Reality keys, and a per-inbound `x-usher` block with client hints. Xray reads it at start. usher
   reads the same file read-only at every pass.
-- usher owns the users inside the inbounds, through the API, and everything under `clients/`. Xray
-  keeps users in memory, so the refill tick restores them after a restart.
-- A managed inbound has a tag that matches the interface name pattern (32 characters), one integer
-  port, no unix `listen`, empty `clients` and a protocol of vless, hysteria, vmess or trojan. Other
-  inbounds are skipped. An inbound that fails validation carries its error. A structural error
-  (port, listen, clients, decryption, transport, Hysteria auth, masks, xhttp, Reality keys, a decode
-  failure, an invalid or duplicate tag) is returned by `Prepare`, so the pass skips `Apply` and
-  touches no user of the tag; `Apply` also returns it if called. An `x-usher` hint error, like an
-  enroll or render error, is kept by `Prepare`, which returns none, so the pass still calls `Apply`.
-  `Apply` removes the users who left only when the drift check found the running inbound usable,
-  then returns the error, which keeps the old files. `validate` runs the hint check last, so a hint
-  error is the only reason left and `checkDrift` still compares the inbound. A tag defined twice is
-  reported once, and its entry carries the error.
+- usher owns the users inside the managed inbounds, through the API, and everything under
+  `clients/`. Xray keeps users in memory, so the refill tick restores them after a restart.
+- A managed inbound has a tag and a protocol of vless, hysteria, vmess or trojan. Other inbounds
+  are skipped.
+
+### Errors of an inbound
+
+`validate` puts every problem of an inbound into one of two classes:
+
+- A structural error (port, `listen`, `clients`, decryption, transport, security, Hysteria
+  fields, masks, xhttp, Reality keys, a decode failure, an invalid or duplicate tag). `Prepare`
+  returns it, so the pass skips `Apply` and touches no user of the tag.
+- A hint error (`x-usher`), an enroll error or a render error. `Prepare` keeps it and returns
+  none, so the pass calls `Apply`, which removes the users who left and then returns the error.
+  `validate` runs the hint check last, so `checkDrift` still compares an inbound with a hint
+  error.
+
+A tag defined twice is reported once, and its entry carries the error.
 
 ### Reading the config
 
 `readConfig` reads the file with Xray's comment-aware reader into `infra/conf` types plus raw maps.
 It normalizes the aliases (`method`, `splithttp`, `websocket`, `tcp`, `splithttpSettings`,
 `tcpSettings`, Hysteria `users`) before validation and mirroring. Every error names the field and
-never a value. `x-usher` decodes with unknown keys rejected. Reality matches names by exact lookup,
-so there an explicit `x-usher.sni` must be one of the `serverNames` entries, and the config needs an
-entry without a wildcard when `sni` is unset. A Reality `privateKey` and `mldsa65Seed` must decode,
-and the seed must differ from the key. `hop_ports` requires from < to. An inbound without
-`streamSettings` stays without them in `Raw`, so it builds as Xray builds the file. readConfig
-registers a discard handler for Xray's global logger once, because `Build()` prints deprecation
-warnings.
+never a value. An inbound without `streamSettings` stays without them in `Raw`, so it builds as
+Xray builds the file.
 
 ### Users
 
@@ -154,8 +123,6 @@ warnings.
   logs `users changed`. The next pass converges from the listed state.
 - When the running inbound is missing, runs another protocol or could not be compared, `Apply`
   changes nothing: an account of the wrong type makes Xray's validator panic and kills the process.
-- Removal stops new connections. An open Hysteria2 QUIC connection stays until the client
-  reconnects.
 
 ### Drift guard
 
@@ -165,20 +132,19 @@ name a file are dropped on both sides, because Xray reloads those files itself. 
 runtime counts as drift. The proxy type of the running handler is compared with the file's protocol
 before any `Build()`; a mismatch, or a file entry that does not decode or build, marks the drift
 unusable. The reason names the differing parts; an error of `Build()` becomes a fixed text, because
-Xray quotes the keys and short ids it rejects. `Apply` reconciles users first and then returns the
-drift error, so revocation works while the old client files stay. The exception is an unusable
-drift: a missing inbound, another proxy type or a failed comparison (see Users). A running managed
-inbound that the file does not define is logged each pass.
+Xray quotes the keys and short ids it rejects. On a usable drift `Apply` reconciles users and then
+returns the drift error, so the old client files stay. On an unusable drift it changes nothing. A
+running managed inbound that the file does not define is logged each pass.
 
 ### Stale socket
 
 A killed Xray leaves its API socket, and a new start fails on it. Xray holds `flock(LOCK_EX)` on
 `<socket>.lock` while it listens. Before dialing, usher opens the lock read-only and tries
 `LOCK_EX|LOCK_NB`. When it gets the lock, no Xray listens: usher unlinks the socket and reports Xray
-down for this pass. The restart policy starts Xray at its next attempt. The socket directory is a
-bind mount that usher can write. A failed Xray start removes the lock file, so for a socket without
-one usher probes the socket instead: only a refused connection counts as stale, and a live Xray, or
-a socket that a new Xray replaced meanwhile, stays. A path that is not a socket is an error.
+down for this pass. The restart policy starts Xray at its next attempt. A failed Xray start removes
+the lock file, so for a socket without one usher probes the socket instead: only a refused
+connection counts as stale, and a live Xray, or a socket that a new Xray replaced meanwhile, stays.
+A path that is not a socket is an error.
 
 ### Client mirror
 
@@ -191,12 +157,9 @@ a socket that a new Xray replaced meanwhile, stays. A path that is not a socket 
 - `tlsSettings` is rebuilt: server name, ALPN, fingerprint and, with `trust: pin`,
   `pinnedPeerCertSha256`.
 - `realitySettings` is rebuilt: public key from `privateKey` (`crypto/ecdh`), `shortIds[0]`,
-  `spiderX` `/`, `mldsa65Verify` from `mldsa65Seed`. The fingerprint is `chrome`, `firefox` or
-  `safari`.
-- Hysteria2: the client `auth` is the user's password. From salamander only `password` is copied;
-  `packetSize` fails the inbound. `hop_ports` adds a client `udphop` mask (mode
-  `intervalLocal,intervalRemote`, interval 30, in libxray's shape). The range needs a host DNAT to
-  the inbound port.
+  `spiderX` `/`, `mldsa65Verify` from `mldsa65Seed`.
+- Hysteria2: the client `auth` is the user's password. From salamander only `password` is copied.
+  `hop_ports` adds a client `udphop` mask with mode `intervalLocal,intervalRemote` and interval 30.
 
 ### Outputs
 
@@ -209,7 +172,12 @@ a socket that a new Xray replaced meanwhile, stays. A path that is not a socket 
 
 ## State
 
-`state/users.json` is version 2: the `awg` group keyed `interface/user` and the `xray` group keyed
-`tag/user`. An `xray` entry holds exactly one of `id` and `password`. `Load` accepts versions 1
-and 2. Before the first save of a version 1 file usher writes `users.json.v1` beside it, so a
-rollback is a file rename.
+`state/users.json` is the only source of secrets; the kernel, Xray and `clients/` derive from it.
+It is version 2: the `awg` group keyed `interface/user` and the `xray` group keyed `tag/user`. An
+`xray` entry holds exactly one of `id` and `password`. usher saves it (temp file, fsync, rename,
+directory fsync, mode 0600) only when an entry changed, and always before any backend's `Apply`.
+`Load` accepts versions 1 and 2. Before the first save of a version 1 file usher writes
+`users.json.v1` beside it, so a rollback is a file rename.
+
+`clients/` belongs to usher: anything not rendered from the applied state is removed. Files are
+mode `0600`, uid 1000.

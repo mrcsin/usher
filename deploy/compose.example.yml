@@ -11,6 +11,7 @@ services:
     # awg gets one pipe per preshared key; 1000 peers come close to the default soft limit of 1024.
     ulimits:
       nofile: { soft: 65536, hard: 65536 }
+    # The host port equals the interface port: client configs carry it.
     ports:
       - "51820:51820/udp"
     volumes:
@@ -27,6 +28,7 @@ services:
     # Must equal usher's group, so that usher can open the API socket.
     user: "0:1000"
     command: ["run", "-config", "/etc/xray/config.json"]
+    # The host port equals the interface port: client configs carry it.
     ports:
       - "443:443/tcp"
       - "8443:8443/udp"
@@ -39,7 +41,7 @@ services:
       # Owned by uid 1000, not a named volume: usher unlinks a stale API socket after a crash.
       - ./xray-sock:/run/xray
   usher:
-    image: ghcr.io/mrcsin/usher:v0.1.0
+    image: ghcr.io/mrcsin/usher:v0.2.0
     restart: unless-stopped
     cap_drop: [ALL]
     read_only: true
