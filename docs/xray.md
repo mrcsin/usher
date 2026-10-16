@@ -94,13 +94,15 @@ files and fallbacks never reach `clients/` or the log.
 
 ## Client compatibility
 
-Checked against Xray 26.10.10 and sing-box 1.14.3.
+Checked on 2026-10-14 with Xray-core 26.10.10 and sing-box 1.14.3. A new Xray, uTLS or sing-box
+release can change this.
 
-- Reality links work in Xray-core clients only: the server requires an `X25519MLKEM768` key
-  share, which sing-box does not send. Of the uTLS fingerprints, only `chrome`, `firefox` and
-  `safari` send it.
-- xhttp is not in upstream sing-box.
-- VLESS ws, Trojan, VMess and Hysteria2 with salamander work in sing-box.
+- Xray-core connects to every supported shape. Since Xray 26.9.8 the Reality server accepts a
+  ClientHello only with an `X25519MLKEM768` key share. The uTLS fingerprints `chrome`, `firefox`
+  and `safari` send it, and usher fails a Reality inbound with any other `x-usher.fingerprint`. A
+  client core before 26.3.27 sends `firefox` without the share and fails; `chrome` connects there.
+- sing-box fails Reality on every fingerprint and has no xhttp transport. VLESS ws, Trojan, VMess
+  and Hysteria2 with salamander work.
 
 ## Removing a user
 
