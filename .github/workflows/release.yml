@@ -37,6 +37,11 @@ jobs:
           tags: ghcr.io/mrcsin/usher:${{ github.ref_name }}
           build-args: VERSION=${{ github.ref_name }}
 
+      # actions/checkout leaves the tag without its annotation, and --notes-from-tag
+      # would then publish the commit message instead of the release notes.
+      - name: fetch annotated tag
+        run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+
       - name: create GitHub release
         run: gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag
         env:
