@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mrcsin/usher/internal/atomicfile"
 	"github.com/mrcsin/usher/internal/clients"
 	"github.com/mrcsin/usher/internal/config"
 	"github.com/mrcsin/usher/internal/state"
+	"github.com/mrcsin/usher/internal/status"
 )
 
 // Pass keeps the last valid usher.yml it read.
@@ -66,7 +68,12 @@ func (p *Pass) Run(ctx context.Context) {
 		}
 	}
 
+	prepareFailed := maps.Clone(failed)
 	p.applyAll(ctx, st, open, byInterface, failed)
+	// A cancelled pass fails every call, so its file would show every interface down.
+	if p.settings.StatusPath != "" && ctx.Err() == nil {
+		p.writeStatus(ctx, st, open, byInterface, prepareFailed, failed)
+	}
 
 	// A backend that is down hides its interface names, so every unreferenced name could be one.
 	if len(down) == 0 {
@@ -102,6 +109,7 @@ func (p *Pass) prepareAll(st *state.State, open []openBackend, byInterface map[s
 	return rendered, changed
 }
 
+// applyAll marks in failed each interface whose Apply returned an error.
 func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend,
 	byInterface map[string][]string, failed map[interfaceKey]bool) {
 	for i, b := range open {
@@ -115,6 +123,38 @@ func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend
 				failed[key] = true
 			}
 		}
+	}
+}
+
+// writeStatus writes the status file for the interfaces of the open backends. A name that two
+// backends report is written once, so the file holds no duplicate series.
+func (p *Pass) writeStatus(ctx context.Context, st *state.State, open []openBackend,
+	byInterface map[string][]string, prepareFailed, failed map[interfaceKey]bool) {
+	var interfaces []status.Interface
+	written := make(map[string]bool)
+	for i, b := range open {
+		for _, name := range b.session.Interfaces() {
+			if written[name] {
+				continue
+			}
+			written[name] = true
+			key := interfaceKey{i, name}
+			iface := status.Interface{Name: name, Up: !failed[key]}
+			if prepareFailed[key] {
+				interfaces = append(interfaces, iface)
+				continue
+			}
+			users, err := b.session.Stats(ctx, st, name, byInterface[name])
+			if err != nil {
+				p.log.Error("reading stats", "backend", b.Name, "interface", name, "error", err)
+			} else {
+				iface.Users = users
+			}
+			interfaces = append(interfaces, iface)
+		}
+	}
+	if err := atomicfile.Write(p.settings.StatusPath, status.Render(interfaces), 0o644); err != nil {
+		p.log.Error("writing status file", "error", err)
 	}
 }
 

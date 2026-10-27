@@ -13,8 +13,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 
 FROM alpine:3.24.2 AS runtime
 COPY --from=build /out/usher /usr/local/bin/usher
-RUN mkdir -p /srv/usher/config /srv/usher/clients /srv/usher/state \
- && chown 1000:1000 /srv/usher/clients /srv/usher/state
+RUN mkdir -p /srv/usher/config /srv/usher/clients /srv/usher/state /srv/usher/status \
+ && chown 1000:1000 /srv/usher/clients /srv/usher/state /srv/usher/status
 USER 1000:1000
 ENTRYPOINT ["usher"]
 CMD ["run"]

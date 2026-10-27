@@ -3,6 +3,7 @@
 package xray
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,6 +180,55 @@ func fetch(user string, r route) error {
 		return fmt.Errorf("body %q does not come from the target", body)
 	}
 	return nil
+}
+
+// openTunnel opens a CONNECT tunnel to the target through the proxy of the user and fetches the
+// page once through it, so the client holds its connection to Xray open until conn is closed.
+func openTunnel(user string, r route) (net.Conn, error) {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHosts[user], strconv.Itoa(r.port)), requestTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if err := fetchThrough(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("%s of %s: %w", r, user, err)
+	}
+	return conn, nil
+}
+
+func fetchThrough(conn net.Conn) error {
+	if err := conn.SetDeadline(time.Now().Add(requestTimeout)); err != nil {
+		return err
+	}
+	target := net.JoinHostPort(targetHost, "80")
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+		return err
+	}
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		return fmt.Errorf("CONNECT: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("CONNECT status %d, want 200", resp.StatusCode)
+	}
+	if _, err := fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", targetHost); err != nil {
+		return err
+	}
+	resp, err = http.ReadResponse(reader, nil)
+	if err != nil {
+		return fmt.Errorf("GET through the tunnel: %w", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(body), targetBody) {
+		return fmt.Errorf("body %q does not come from the target", body)
+	}
+	return conn.SetDeadline(time.Time{})
 }
 
 func fetchAll(user string, among []route) map[route]error {

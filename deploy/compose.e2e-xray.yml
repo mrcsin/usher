@@ -52,12 +52,14 @@ services:
       - ../.e2e-xray/config:/srv/usher/config:ro
       - ../.e2e-xray/clients:/srv/usher/clients
       - ../.e2e-xray/state:/srv/usher/state
+      - ../.e2e-xray/status:/srv/usher/status
       - ../.e2e-xray/xray:/etc/xray:ro
       - ../.e2e-xray/sock:/run/xray
     environment:
       USHER_HOST: 172.30.98.2
       USHER_XRAY_SOCKET: /run/xray/api.sock
       USHER_XRAY_CONFIG: /etc/xray/config.json
+      USHER_STATUS_DIR: /srv/usher/status
   # SSL_CERT_FILE stands in for the public CA that a real certificate chains to.
   client-alice:
     profiles: [client]

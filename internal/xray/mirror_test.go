@@ -81,10 +81,7 @@ func byTag(t *testing.T, inbounds []inbound) map[string]inbound {
 }
 
 func TestClientOutboundShapes(t *testing.T) {
-	inbounds, err := readConfig("testdata/server.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, "testdata/server.json")
 	tags := byTag(t, inbounds)
 
 	tests := []struct {

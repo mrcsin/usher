@@ -127,7 +127,7 @@ func newSessionFixture(t *testing.T, change func(c *driftConfig)) sessionFixture
 	service := newUserService(runningFrom(t, path))
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
-	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+	dial := func() (Clients, func(), error) { return Clients{Handler: service}, func() {}, nil }
 	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, "198.51.100.7", log)
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +148,14 @@ func idEntry() state.XrayEntry { return state.XrayEntry{ID: uuid.New()} }
 // badInbound fails validation (clients are not empty) and still builds in Xray.
 const badInbound = `{"tag": "bad", "protocol": "vless", "port": 9000,
 	"settings": {"clients": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5"}], "decryption": "none"}},`
+
+func TestOpenKeepsStatsMissing(t *testing.T) {
+	f := newSessionFixture(t, nil)
+	if !slices.Contains(f.session.statsMissing, "stats") ||
+		!slices.Contains(f.session.statsMissing, "StatsService in api.services") {
+		t.Errorf("statsMissing = %q, want the switches the drift config lacks", f.session.statsMissing)
+	}
+}
 
 func TestSessionInterfaces(t *testing.T) {
 	f := newSessionFixture(t, func(c *driftConfig) { c.extra = badInbound })
@@ -312,7 +320,7 @@ func TestSessionApplyGuards(t *testing.T) {
 			tt.change(&file)
 
 			service := newUserService(running)
-			dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+			dial := func() (Clients, func(), error) { return Clients{Handler: service}, func() {}, nil }
 			session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), file.write(t),
 				"198.51.100.7", slog.New(slog.DiscardHandler))
 			if err != nil {
@@ -469,7 +477,7 @@ func TestSessionApplyUnderDrift(t *testing.T) {
 	f := newSessionFixture(t, nil)
 	f.cfg.realityPort = 8444
 	path := f.cfg.write(t)
-	dial := func() (command.HandlerServiceClient, func(), error) { return f.service, func() {}, nil }
+	dial := func() (Clients, func(), error) { return Clients{Handler: f.service}, func() {}, nil }
 	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), path, "198.51.100.7", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
@@ -493,7 +501,7 @@ func TestSessionApplyUnderDrift(t *testing.T) {
 
 func openWithConfig(t *testing.T, service *userService, cfg driftConfig) *Session {
 	t.Helper()
-	dial := func() (command.HandlerServiceClient, func(), error) { return service, func() {}, nil }
+	dial := func() (Clients, func(), error) { return Clients{Handler: service}, func() {}, nil }
 	session, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t),
 		"198.51.100.7", slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -618,11 +626,11 @@ func TestOpenFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			closed := false
-			dial := func() (command.HandlerServiceClient, func(), error) {
+			dial := func() (Clients, func(), error) {
 				if tt.service == nil {
-					return nil, nil, errors.New("no socket")
+					return Clients{}, nil, errors.New("no socket")
 				}
-				return tt.service, func() { closed = true }, nil
+				return Clients{Handler: tt.service}, func() { closed = true }, nil
 			}
 			cfg := newDriftConfig(t.TempDir())
 			_, err := Open(t.Context(), dial, filepath.Join(t.TempDir(), "xray.sock"), cfg.write(t),
@@ -669,7 +677,7 @@ func TestVMessEchoIsNoChange(t *testing.T) {
 		Id:               e.ID.String(),
 		SecuritySettings: &protocol.SecurityConfig{Type: protocol.SecurityType_AES128_GCM},
 	})}}
-	session := &Session{client: service, byTag: map[string]inbound{"vm": in}, log: slog.New(slog.DiscardHandler)}
+	session := &Session{handler: service, byTag: map[string]inbound{"vm": in}, log: slog.New(slog.DiscardHandler)}
 	st := newState()
 	st.Xray["vm/alice"] = e
 
@@ -686,9 +694,9 @@ func TestOpenStaleSocketReportsDown(t *testing.T) {
 	path := cfg.write(t)
 	socket := staleSocket(t)
 	dialed := false
-	dial := func() (command.HandlerServiceClient, func(), error) {
+	dial := func() (Clients, func(), error) {
 		dialed = true
-		return nil, func() {}, nil
+		return Clients{}, func() {}, nil
 	}
 	if _, err := Open(t.Context(), dial, socket, path, "198.51.100.7", slog.New(slog.DiscardHandler)); err == nil {
 		t.Fatal("want an error for a stale socket")

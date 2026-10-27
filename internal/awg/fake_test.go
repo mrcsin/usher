@@ -2,15 +2,15 @@ package awg
 
 import (
 	"context"
-	"errors"
 
 	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
 	"google.golang.org/grpc"
 )
 
 type fakeClient struct {
-	status func() (*awgv1.GetStatusResponse, error)
-	apply  func(*awgv1.ApplyPeersRequest) (*awgv1.ApplyPeersResponse, error)
+	status    func() (*awgv1.GetStatusResponse, error)
+	apply     func(*awgv1.ApplyPeersRequest) (*awgv1.ApplyPeersResponse, error)
+	listPeers func(*awgv1.ListPeersRequest) (*awgv1.ListPeersResponse, error)
 
 	statusCalls int
 	applied     []*awgv1.ApplyPeersRequest
@@ -29,6 +29,6 @@ func (f *fakeClient) ApplyPeers(_ context.Context, in *awgv1.ApplyPeersRequest, 
 	return f.apply(in)
 }
 
-func (f *fakeClient) ListPeers(context.Context, *awgv1.ListPeersRequest, ...grpc.CallOption) (*awgv1.ListPeersResponse, error) {
-	return nil, errors.New("ListPeers is not used by usher")
+func (f *fakeClient) ListPeers(_ context.Context, in *awgv1.ListPeersRequest, _ ...grpc.CallOption) (*awgv1.ListPeersResponse, error) {
+	return f.listPeers(in)
 }

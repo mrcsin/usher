@@ -9,10 +9,10 @@ operator's Xray config. The operator types names only. Addresses and keys are in
 ## Stack
 
 Go, one binary: `usher run`. It talks gRPC to awg-grpc over the socket in `USHER_AWG_SOCKET`, and
-to Xray's `HandlerService` over the socket in `USHER_XRAY_SOCKET`. At least one is set. It runs in
-a container with no capabilities, a read-only root file system and uid 1000. The Xray backend
-builds inbounds with `xray-core` itself and renders share links with `libxray`, so the Xray image
-must match the `xray-core` version in `go.mod`.
+to Xray's `HandlerService` and `StatsService` over the socket in `USHER_XRAY_SOCKET`. At least one
+is set. It runs in a container with no capabilities, a read-only root file system and uid 1000.
+The Xray backend builds inbounds with `xray-core` itself and renders share links with `libxray`, so
+the Xray image must match the `xray-core` version in `go.mod`.
 
 ## Components
 
@@ -21,7 +21,8 @@ must match the `xray-core` version in `go.mod`.
 | `cmd/usher` | Reads the `USHER_*` environment, builds the backends, wires signals, the watcher and the pass. |
 | `internal/config` | Loads and validates `usher.yml`. |
 | `internal/state` | Loads and saves `state/users.json`. |
-| `internal/atomicfile` | Replaces a file atomically for `state` and the `clients/` mirror. |
+| `internal/atomicfile` | Replaces a file atomically for `state`, the `clients/` mirror and the status file. |
+| `internal/status` | Renders the per-user stats of a pass as the Prometheus text file. |
 | `internal/pass` | Settings, the `Backend` and `Session` seam and the reconcile pass. |
 | `internal/awg` | The awg backend: enrollment, address allocation, `.conf` rendering. |
 | `internal/xray` | The Xray backend: config reader, drift guard, users, mirror, `.json` and `.txt` rendering, stale socket recovery. |
@@ -31,8 +32,9 @@ must match the `xray-core` version in `go.mod`.
 ## The pass
 
 A backend is a `Backend{Name, Suffixes, Open}`. `Open` returns a `Session` with `Interfaces`,
-`Prepare` (enroll users, render files), `Apply` and `Close`. `Suffixes` lists the file suffixes
-the backend owns.
+`Prepare` (enroll users, render files), `Apply`, `Stats` (traffic and online state per user) and
+`Close`. `Suffixes` lists the file suffixes the backend owns. Each backend maps its own API data to
+one `status.UserStats`, so the pass and the renderer never branch on the backend.
 
 | Step        | awg                                              | Xray                                                        |
 | ----------- | ------------------------------------------------ | ----------------------------------------------------------- |
@@ -40,6 +42,7 @@ the backend owns.
 | `Interfaces`| every interface awg-grpc reports                 | every managed inbound tag of the config                     |
 | `Prepare`   | fails an interface that is not present           | returns the structural error of an inbound                  |
 | `Apply`     | `ApplyPeers`, `allow_empty` with no users        | `GetInboundUsers`, then `AlterInbound` per changed user     |
+| `Stats`     | `ListPeers`; a user without a peer is left out   | `QueryStats` per inbound and one `GetAllOnlineUsers` per session, looked up by exact `user>>>tag/user>>>` names; an error without an API call when the config lacks a stats switch |
 | Suffixes    | `.conf`                                          | `.json`, `.txt`                                             |
 
 1. Load `usher.yml`. When it is invalid, use the last valid file of this process. With none,
@@ -51,9 +54,16 @@ the backend owns.
    interface.
 4. Save `users.json` when step 3 created or changed an entry. On error, log and stop.
 5. `Apply` each interface that did not fail. An error fails the interface.
-6. When no backend is down, log every user and interface pair that no backend reports ("interface
+6. When `USHER_STATUS_DIR` is set, write the status file. Each interface of each open backend gets
+   `usher_interface_up` 1 when it was applied and 0 when it failed. `Stats` runs for every
+   interface that step 3 did not fail, applied or not, because an inbound with a usable drift
+   still serves its users. A `Stats` error is logged as `reading stats` and leaves the users
+   of that interface out; it never fails the interface and never changes `usher_interface_up`. A
+   name that two backends report is written once. `atomicfile.Write` replaces the file with mode
+   0644; a write error is logged and the pass goes on.
+7. When no backend is down, log every user and interface pair that no backend reports ("interface
    is not reported by any backend").
-7. Make `clients/` equal to the rendered files of applied interfaces plus the current files of
+8. Make `clients/` equal to the rendered files of applied interfaces plus the current files of
    failed interfaces and down backends.
 
 A pass runs at start, after a change of `usher.yml` and at every 30 s refill tick. One goroutine
