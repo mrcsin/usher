@@ -157,10 +157,7 @@ func TestCheckDrift(t *testing.T) {
 			if tt.change != nil {
 				tt.change(&changed)
 			}
-			inbounds, err := readConfig(changed.write(t))
-			if err != nil {
-				t.Fatal(err)
-			}
+			inbounds := readInbounds(t, changed.write(t))
 
 			var logs bytes.Buffer
 			drift, err := checkDrift(context.Background(), newUserService(running),
@@ -202,10 +199,7 @@ func TestCheckDriftExtraRuntimeTag(t *testing.T) {
 	stray.extra = `{"tag": "stray", "protocol": "vless", "port": 2999,
 		"settings": {"clients": [], "decryption": "none"}},`
 	running := runningFrom(t, stray.write(t))
-	inbounds, err := readConfig(base.write(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, base.write(t))
 
 	var logs bytes.Buffer
 	drift, err := checkDrift(context.Background(), newUserService(running),
@@ -227,10 +221,7 @@ func TestCheckDriftExtraRuntimeTag(t *testing.T) {
 func TestCheckDriftSkipsInvalidInbound(t *testing.T) {
 	base := newDriftConfig(t.TempDir())
 	running := runningFrom(t, base.write(t))
-	inbounds, err := readConfig(base.write(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, base.write(t))
 	inbounds[0].Err = errors.New("invalid")
 
 	drift, err := checkDrift(context.Background(), newUserService(running),
@@ -265,10 +256,7 @@ func TestCheckDriftMatchesXrayBuild(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			inbounds, err := readConfig(tt.path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			inbounds := readInbounds(t, tt.path)
 			for _, in := range inbounds {
 				if in.Err != nil {
 					t.Fatalf("%s: %v", in.Tag, in.Err)
@@ -293,10 +281,7 @@ func TestCheckDriftDoesNotQuoteBuildErrors(t *testing.T) {
 	running := runningFrom(t, base.write(t))
 	broken := base
 	broken.shortID = bad
-	inbounds, err := readConfig(broken.write(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, broken.write(t))
 	if inbounds[0].Err != nil || inbounds[0].Tag != "reality" {
 		t.Fatalf("want the reality inbound to pass validation, got %+v", inbounds[0].Err)
 	}
@@ -334,10 +319,7 @@ func TestCheckDriftUnusable(t *testing.T) {
 			base := newDriftConfig(t.TempDir())
 			running := runningFrom(t, base.write(t))
 			tt.change(&base)
-			inbounds, err := readConfig(base.write(t))
-			if err != nil {
-				t.Fatal(err)
-			}
+			inbounds := readInbounds(t, base.write(t))
 			drift, err := checkDrift(context.Background(), newUserService(running),
 				slog.New(slog.DiscardHandler), inbounds)
 			if err != nil {

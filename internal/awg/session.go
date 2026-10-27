@@ -16,6 +16,7 @@ import (
 
 	"github.com/mrcsin/usher/internal/clients"
 	"github.com/mrcsin/usher/internal/state"
+	"github.com/mrcsin/usher/internal/status"
 )
 
 const Suffix = ".conf"
@@ -116,6 +117,44 @@ func (s *Session) Apply(ctx context.Context, st *state.State, name string, users
 		s.log.Info("peers changed", "interface", name, "added", added, "removed", removed, "updated", updated)
 	}
 	return nil
+}
+
+// Stats reads the peers of the interface and returns the stats of every requested user that has a
+// peer on it.
+func (s *Session) Stats(ctx context.Context, st *state.State, name string, users []string) (map[string]status.UserStats, error) {
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	resp, err := s.client.ListPeers(callCtx, &awgv1.ListPeersRequest{InterfaceName: name})
+	if err != nil {
+		return nil, fmt.Errorf("listing peers: %w", err)
+	}
+	return peerStats(resp.GetPeers(), publicKeyNames(st, name), users, time.Now()), nil
+}
+
+// onlineWindow is how recent a handshake must be for the user to count as online. A client with
+// the tunnel up handshakes about every 2 minutes because its config sets PersistentKeepalive.
+const onlineWindow = 180 * time.Second
+
+func peerStats(peers []*awgv1.PeerStatus, names map[string]string, users []string, now time.Time) map[string]status.UserStats {
+	out := make(map[string]status.UserStats, len(users))
+	for _, p := range peers {
+		user, ok := names[string(p.GetPublicKey())]
+		if !ok || !slices.Contains(users, user) {
+			continue
+		}
+		online := false
+		if handshake := p.GetLastHandshake(); handshake != nil {
+			// A handshake in the future comes from a clock step and proves nothing.
+			age := now.Sub(handshake.AsTime())
+			online = age >= 0 && age < onlineWindow
+		}
+		out[user] = status.UserStats{
+			Uplink:   p.GetRxBytes(),
+			Downlink: p.GetTxBytes(),
+			Online:   online,
+		}
+	}
+	return out
 }
 
 func (s *Session) Close() {

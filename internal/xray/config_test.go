@@ -13,10 +13,7 @@ import (
 )
 
 func TestReadConfigShapes(t *testing.T) {
-	inbounds, err := readConfig("testdata/server.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, "testdata/server.json")
 	want := []inbound{
 		{Tag: "vless-reality", Protocol: "vless", Port: 443, Network: "raw", Security: "reality",
 			ServerName: "www.example.com",
@@ -58,16 +55,22 @@ func TestReadConfigShapes(t *testing.T) {
 	}
 }
 
+func readInbounds(t *testing.T, path string) []inbound {
+	t.Helper()
+	cfg, err := readConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Inbounds
+}
+
 func summary(in inbound) string {
 	return fmt.Sprintf("%s %s %d %s %s %q %+v", in.Tag, in.Protocol, in.Port, in.Network, in.Security,
 		in.ServerName, in.Hints)
 }
 
 func TestReadConfigAliases(t *testing.T) {
-	inbounds, err := readConfig("testdata/aliases.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, "testdata/aliases.json")
 	byTag := map[string]inbound{}
 	for _, in := range inbounds {
 		byTag[in.Tag] = in
@@ -175,10 +178,7 @@ func readOne(t *testing.T, inbound map[string]any) inbound {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inbounds, err := readConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, path)
 	if len(inbounds) != 1 {
 		t.Fatalf("got %d inbounds, want 1", len(inbounds))
 	}
@@ -414,10 +414,7 @@ func TestReadConfigSkipsAndDuplicates(t *testing.T) {
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inbounds, err := readConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, path)
 	if len(inbounds) != 2 {
 		t.Fatalf("got %d inbounds, want 2", len(inbounds))
 	}
@@ -451,10 +448,7 @@ func TestDeployExampleConfig(t *testing.T) {
 	wantTags := []string{"vless-reality", "hysteria2"}
 
 	// As shipped, the placeholders make the Reality inbound fail on its key.
-	inbounds, err := readConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds := readInbounds(t, path)
 	var tags []string
 	for _, in := range inbounds {
 		tags = append(tags, in.Tag)
@@ -476,13 +470,70 @@ func TestDeployExampleConfig(t *testing.T) {
 	if err := os.WriteFile(filled, []byte(replaced), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inbounds, err = readConfig(filled)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inbounds = readInbounds(t, filled)
 	for _, in := range inbounds {
 		if in.Err != nil {
 			t.Errorf("inbound %s: %v", in.Tag, in.Err)
 		}
+	}
+}
+
+func TestReadConfigStatsSwitches(t *testing.T) {
+	const allOn = `{
+		// stats switches, with comments
+		"stats": {},
+		"policy": {"levels": {"0": {"handshake": 4, "statsUserUplink": true, "statsUserDownlink": true,
+			"statsUserOnline": true}}},
+		"api": {"tag": "api", "services": ["HandlerService", "StatsService"]}, /* block comment */
+		"inbounds": [{"tag":"t","protocol":"trojan","port":1,"settings":{"clients":[]}}]
+	}`
+	tests := []struct {
+		name string
+		doc  string
+		want []string
+	}{
+		{"all present", allOn, nil},
+		{"stats missing", strings.Replace(allOn, `"stats": {},`, "", 1), []string{"stats"}},
+		{"stats null", strings.Replace(allOn, `"stats": {}`, `"stats": null`, 1), []string{"stats"}},
+		{"uplink missing", strings.Replace(allOn, `"statsUserUplink": true,`, "", 1),
+			[]string{"policy.levels.0.statsUserUplink"}},
+		{"downlink false", strings.Replace(allOn, `"statsUserDownlink": true`, `"statsUserDownlink": false`, 1),
+			[]string{"policy.levels.0.statsUserDownlink"}},
+		{"online missing", strings.Replace(allOn, `,
+			"statsUserOnline": true`, "", 1), []string{"policy.levels.0.statsUserOnline"}},
+		{"other level only", strings.Replace(allOn, `"0":`, `"1":`, 1), []string{
+			"policy.levels.0.statsUserUplink", "policy.levels.0.statsUserDownlink",
+			"policy.levels.0.statsUserOnline"}},
+		{"service missing", strings.Replace(allOn, `, "StatsService"`, "", 1),
+			[]string{"StatsService in api.services"}},
+		{"service in lower case", strings.Replace(allOn, `"StatsService"`, `"statsservice"`, 1), nil},
+		{"online a string", strings.Replace(allOn, `"statsUserOnline": true`, `"statsUserOnline": "true"`, 1),
+			[]string{"policy.levels.0.statsUserOnline"}},
+		{"levels a list", strings.Replace(allOn, `"levels": {"0": {`, `"levels": [{"0": 0}], "x": {"0": {`, 1),
+			[]string{"policy.levels.0.statsUserUplink", "policy.levels.0.statsUserDownlink",
+				"policy.levels.0.statsUserOnline"}},
+		{"services a string", strings.Replace(allOn, `["HandlerService", "StatsService"]`, `"StatsService"`, 1),
+			[]string{"StatsService in api.services"}},
+		{"none", `{"inbounds": []}`, []string{"stats", "policy.levels.0.statsUserUplink",
+			"policy.levels.0.statsUserDownlink", "policy.levels.0.statsUserOnline",
+			"StatsService in api.services"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(tt.doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := readConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(cfg.StatsMissing, tt.want) {
+				t.Errorf("StatsMissing = %q, want %q", cfg.StatsMissing, tt.want)
+			}
+			if tt.name != "none" && (len(cfg.Inbounds) != 1 || cfg.Inbounds[0].Err != nil) {
+				t.Errorf("inbounds = %+v", cfg.Inbounds)
+			}
+		})
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
 	"github.com/xtls/xray-core/app/proxyman/command"
+	statscmd "github.com/xtls/xray-core/app/stats/command"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -74,7 +75,12 @@ func awgBackend(env environment, log *slog.Logger) pass.Backend {
 }
 
 func xrayBackend(env environment, log *slog.Logger) pass.Backend {
-	dial := dialUnix(env.XraySocket, command.NewHandlerServiceClient)
+	dial := dialUnix(env.XraySocket, func(conn grpc.ClientConnInterface) xray.Clients {
+		return xray.Clients{
+			Handler: command.NewHandlerServiceClient(conn),
+			Stats:   statscmd.NewStatsServiceClient(conn),
+		}
+	})
 	return pass.Backend{
 		Name:     "xray",
 		Suffixes: []string{xray.JSONSuffix, xray.LinkSuffix},

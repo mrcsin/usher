@@ -14,6 +14,9 @@ const (
 	configPath  = "/srv/usher/config/usher.yml"
 	clientsPath = "/srv/usher/clients"
 	statePath   = "/srv/usher/state/users.json"
+
+	// statusFile is the file name in USHER_STATUS_DIR; the textfile collector reads only *.prom.
+	statusFile = "usher.prom"
 )
 
 type environment struct {
@@ -57,9 +60,19 @@ func environmentFrom(getenv func(string) string) (environment, error) {
 	if awgSocket == "" && xraySocket == "" {
 		return environment{}, errors.New("USHER_AWG_SOCKET or USHER_XRAY_SOCKET is required")
 	}
+	var statusPath string
+	if statusDir := getenv("USHER_STATUS_DIR"); statusDir != "" {
+		dir, err := parseAbsPath("USHER_STATUS_DIR", statusDir)
+		if err != nil {
+			return environment{}, err
+		}
+		statusPath = filepath.Join(dir, statusFile)
+	}
 
 	return environment{
-		Settings:  pass.Settings{ConfigPath: configPath, ClientsDir: clientsPath, StatePath: statePath},
+		Settings: pass.Settings{
+			ConfigPath: configPath, ClientsDir: clientsPath, StatePath: statePath, StatusPath: statusPath,
+		},
 		Host:      host,
 		DNS:       dns,
 		AWGSocket: awgSocket,

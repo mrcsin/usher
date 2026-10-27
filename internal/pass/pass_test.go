@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mrcsin/usher/internal/state"
+	"github.com/mrcsin/usher/internal/status"
 )
 
 type fakeSession struct {
@@ -25,9 +26,12 @@ type fakeSession struct {
 	prepareErr map[string]error
 	applyErr   map[string]error
 	onApply    func(name string)
+	stats      map[string]map[string]status.UserStats
+	statsErr   map[string]error
 
-	applied map[string][]string
-	closed  bool
+	applied    map[string][]string
+	statsCalls map[string][]string
+	closed     bool
 }
 
 func (f *fakeSession) Interfaces() []string { return f.names }
@@ -64,6 +68,17 @@ func (f *fakeSession) Apply(_ context.Context, _ *state.State, name string, user
 	}
 	f.applied[name] = users
 	return f.applyErr[name]
+}
+
+func (f *fakeSession) Stats(_ context.Context, _ *state.State, name string, users []string) (map[string]status.UserStats, error) {
+	if f.statsCalls == nil {
+		f.statsCalls = map[string][]string{}
+	}
+	f.statsCalls[name] = users
+	if err := f.statsErr[name]; err != nil {
+		return nil, err
+	}
+	return f.stats[name], nil
 }
 
 func (f *fakeSession) Close() { f.closed = true }
@@ -156,6 +171,31 @@ func (e *passEnv) clientFiles() map[string]string {
 		e.t.Fatal(err)
 	}
 	return files
+}
+
+func (e *passEnv) enableStatus() {
+	e.t.Helper()
+	e.settings.StatusPath = filepath.Join(filepath.Dir(e.settings.StatePath), "usher.prom")
+	e.newPass()
+}
+
+func (e *passEnv) statusFile() string {
+	e.t.Helper()
+	content, err := os.ReadFile(e.settings.StatusPath)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return string(content)
+}
+
+// logLine returns the first log line that contains msg, or "" when none does.
+func (e *passEnv) logLine(msg string) string {
+	for line := range strings.Lines(e.logs.String()) {
+		if strings.Contains(line, msg) {
+			return line
+		}
+	}
+	return ""
 }
 
 func sortedKeys(files map[string]string) []string {
@@ -277,10 +317,17 @@ func TestRunStopsBeforeRequests(t *testing.T) {
 			fb := &fakeBackend{session: &fakeSession{names: []string{"awg0"}}}
 			e := newPassEnv(t, "phone: [awg0]\n", fb.backend("awg-grpc", ".conf"))
 			e.writeClient("stale/awg0.conf", "stale")
+			e.enableStatus()
+			if err := os.WriteFile(e.settings.StatusPath, []byte("old"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			tt.setup(e)
 
 			e.run()
 
+			if got := e.statusFile(); got != "old" {
+				t.Errorf("status file = %q, want it unchanged", got)
+			}
 			if len(fb.session.applied) != 0 {
 				t.Errorf("Apply was called")
 			}
@@ -510,5 +557,183 @@ func TestRunBackendDownKeepsEverySuffix(t *testing.T) {
 	want := map[string]string{"phone/vless.json": "old json", "phone/vless.txt": "old txt"}
 	if files := e.clientFiles(); !maps.Equal(files, want) {
 		t.Errorf("client files = %v, want %v", files, want)
+	}
+}
+
+func TestRunStatusOff(t *testing.T) {
+	fb := &fakeBackend{session: &fakeSession{names: []string{"awg0"}}}
+	e := newPassEnv(t, "phone: [awg0]\n", fb.backend("awg-grpc", ".conf"))
+
+	e.run()
+
+	if len(fb.session.statsCalls) != 0 {
+		t.Errorf("Stats was called: %v", fb.session.statsCalls)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(e.settings.StatePath), "*.prom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("status files written: %v", matches)
+	}
+}
+
+func TestRunStatus(t *testing.T) {
+	phone := map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20, Online: true}}
+	tests := []struct {
+		name       string
+		session    *fakeSession
+		wantCalled bool
+		want       status.Interface
+		wantLog    string
+	}{
+		{
+			name:       "applied",
+			session:    &fakeSession{},
+			wantCalled: true,
+			want:       status.Interface{Name: "awg0", Up: true, Users: phone},
+		},
+		{
+			name:    "prepare error",
+			session: &fakeSession{prepareErr: map[string]error{"awg0": errors.New("not present")}},
+			want:    status.Interface{Name: "awg0"},
+		},
+		{
+			name:       "apply error",
+			session:    &fakeSession{applyErr: map[string]error{"awg0": errors.New("rejected")}},
+			wantCalled: true,
+			want:       status.Interface{Name: "awg0", Users: phone},
+		},
+		{
+			name:       "stats error",
+			session:    &fakeSession{statsErr: map[string]error{"awg0": errors.New("stats are off")}},
+			wantCalled: true,
+			want:       status.Interface{Name: "awg0", Up: true},
+			wantLog:    "reading stats",
+		},
+		{
+			name: "apply and stats error",
+			session: &fakeSession{
+				applyErr: map[string]error{"awg0": errors.New("rejected")},
+				statsErr: map[string]error{"awg0": errors.New("api down")},
+			},
+			wantCalled: true,
+			want:       status.Interface{Name: "awg0"},
+			wantLog:    "reading stats",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.session.names = []string{"awg0"}
+			tt.session.stats = map[string]map[string]status.UserStats{"awg0": phone}
+			fb := &fakeBackend{session: tt.session}
+			e := newPassEnv(t, "phone: [awg0]\n", fb.backend("awg-grpc", ".conf"))
+			e.enableStatus()
+
+			e.run()
+
+			users, called := tt.session.statsCalls["awg0"]
+			if called != tt.wantCalled {
+				t.Errorf("Stats called = %v, want %v", called, tt.wantCalled)
+			}
+			if called && !slices.Equal(users, []string{"phone"}) {
+				t.Errorf("Stats users = %v", users)
+			}
+			if got, want := e.statusFile(), string(status.Render([]status.Interface{tt.want})); got != want {
+				t.Errorf("status file =\n%s\nwant\n%s", got, want)
+			}
+			if tt.wantLog != "" {
+				line := e.logLine(tt.wantLog)
+				if !strings.Contains(line, "backend=awg-grpc") || !strings.Contains(line, "interface=awg0") {
+					t.Errorf("log line %q lacks backend and interface; log: %s", line, e.logs)
+				}
+			}
+		})
+	}
+}
+
+func TestRunStatusStatsErrorKeepsOtherInterface(t *testing.T) {
+	phone := map[string]status.UserStats{"phone": {Uplink: 1, Downlink: 2}}
+	fb := &fakeBackend{session: &fakeSession{
+		names:    []string{"awg0", "awg1"},
+		stats:    map[string]map[string]status.UserStats{"awg0": phone, "awg1": phone},
+		statsErr: map[string]error{"awg0": errors.New("api down")},
+	}}
+	e := newPassEnv(t, "phone: [awg0, awg1]\n", fb.backend("awg-grpc", ".conf"))
+	e.enableStatus()
+
+	e.run()
+
+	want := string(status.Render([]status.Interface{
+		{Name: "awg0", Up: true},
+		{Name: "awg1", Up: true, Users: phone},
+	}))
+	if got := e.statusFile(); got != want {
+		t.Errorf("status file =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRunStatusCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fb := &fakeBackend{session: &fakeSession{names: []string{"awg0"}, onApply: func(string) { cancel() }}}
+	e := newPassEnv(t, "phone: [awg0]\n", fb.backend("awg-grpc", ".conf"))
+	e.enableStatus()
+
+	e.pass.Run(ctx)
+
+	if len(fb.session.statsCalls) != 0 {
+		t.Errorf("Stats was called: %v", fb.session.statsCalls)
+	}
+	if _, err := os.Stat(e.settings.StatusPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("status file after a cancelled pass: %v, want it absent", err)
+	}
+}
+
+func TestRunStatusBackendDown(t *testing.T) {
+	awg := &fakeBackend{openErr: errors.New("no socket"), session: &fakeSession{}}
+	xray := &fakeBackend{session: &fakeSession{names: []string{"vless"}}}
+	e := newPassEnv(t, "phone: [awg0, vless]\n", awg.backend("awg-grpc", ".conf"), xray.backend("xray", ".txt"))
+	e.enableStatus()
+
+	e.run()
+
+	want := string(status.Render([]status.Interface{{Name: "vless", Up: true}}))
+	if got := e.statusFile(); got != want {
+		t.Errorf("status file =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRunStatusNameCollision(t *testing.T) {
+	awg := &fakeBackend{session: &fakeSession{names: []string{"shared"}}}
+	xray := &fakeBackend{session: &fakeSession{names: []string{"shared"}}}
+	e := newPassEnv(t, "phone: [shared]\n", awg.backend("awg-grpc", ".conf"), xray.backend("xray", ".txt"))
+	e.enableStatus()
+
+	e.run()
+
+	want := string(status.Render([]status.Interface{{Name: "shared"}}))
+	if got := e.statusFile(); got != want {
+		t.Errorf("status file =\n%s\nwant\n%s", got, want)
+	}
+	if len(awg.session.statsCalls)+len(xray.session.statsCalls) != 0 {
+		t.Errorf("Stats was called: %v %v", awg.session.statsCalls, xray.session.statsCalls)
+	}
+}
+
+func TestRunStatusUnwritable(t *testing.T) {
+	fb := &fakeBackend{session: &fakeSession{names: []string{"awg0"}}}
+	e := newPassEnv(t, "phone: [awg0]\n", fb.backend("awg-grpc", ".conf"))
+	e.settings.StatusPath = filepath.Join(filepath.Dir(e.settings.StatePath), "missing", "usher.prom")
+	e.newPass()
+	e.writeClient("stale/awg0.conf", "stale")
+
+	e.run()
+
+	if line := e.logLine("writing status file"); !strings.Contains(line, "error=") {
+		t.Errorf("log line %q lacks the write error; log: %s", line, e.logs)
+	}
+	if got := sortedKeys(e.clientFiles()); !slices.Equal(got, []string{"phone/awg0.conf"}) {
+		t.Errorf("clients were not mirrored: %v", got)
 	}
 }

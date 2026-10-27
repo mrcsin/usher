@@ -25,7 +25,8 @@ go test -race ./...
 Table-driven tests sit beside the source as `*_test.go`; filesystem tests use `t.TempDir()`. The
 `awg-grpc` API is faked by a struct with func fields that implements
 `awgv1.ManagementServiceClient`; the Xray API by a struct that implements
-`command.HandlerServiceClient`.
+`command.HandlerServiceClient` and by `fakeStats` in `internal/xray/stats_test.go`, which implements
+`statscmd.StatsServiceClient` with func fields.
 
 The e2e suite in `test/e2e` carries `//go:build e2e`. It needs Docker and a host with the
 `amneziawg` module loaded, so it runs on a Linux host, not on macOS. It uses the published

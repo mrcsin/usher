@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xtls/xray-core/app/proxyman/command"
+	statscmd "github.com/xtls/xray-core/app/stats/command"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
 	"google.golang.org/protobuf/proto"
@@ -19,26 +20,37 @@ import (
 
 const callTimeout = 10 * time.Second
 
-type Dial func() (command.HandlerServiceClient, func(), error)
+// Clients holds the Xray API clients that share one connection.
+type Clients struct {
+	Handler command.HandlerServiceClient
+	Stats   statscmd.StatsServiceClient
+}
+
+type Dial func() (Clients, func(), error)
 
 type Session struct {
-	client    command.HandlerServiceClient
+	handler   command.HandlerServiceClient
+	stats     statscmd.StatsServiceClient
 	closeConn func()
 	inbounds  []inbound
 	byTag     map[string]inbound
 	drift     map[string]error
 	// broken maps a tag whose accounts or client files cannot be built to the reason.
-	broken map[string]error
-	host   string
-	log    *slog.Logger
+	broken       map[string]error
+	statsMissing []string
+	online       []string
+	onlineRead   bool
+	host         string
+	log          *slog.Logger
 }
 
 // Open removes a stale socket left by a killed Xray and fails the pass.
 func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, log *slog.Logger) (*Session, error) {
-	inbounds, err := readConfig(configPath)
+	cfg, err := readConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
+	inbounds := cfg.Inbounds
 	removed, err := removeStaleSocket(socketPath)
 	if err != nil {
 		return nil, err
@@ -47,13 +59,13 @@ func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, l
 		log.Warn("removed stale xray socket", "path", socketPath)
 		return nil, errors.New("xray is down: removed its stale api socket")
 	}
-	client, closeConn, err := dial()
+	clients, closeConn, err := dial()
 	if err != nil {
 		return nil, fmt.Errorf("connecting to xray: %w", err)
 	}
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	drift, err := checkDrift(callCtx, client, log, inbounds)
+	drift, err := checkDrift(callCtx, clients.Handler, log, inbounds)
 	if err != nil {
 		closeConn()
 		return nil, err
@@ -63,14 +75,16 @@ func Open(ctx context.Context, dial Dial, socketPath, configPath, host string, l
 		byTag[in.Tag] = in
 	}
 	return &Session{
-		client:    client,
-		closeConn: closeConn,
-		inbounds:  inbounds,
-		byTag:     byTag,
-		drift:     drift,
-		broken:    map[string]error{},
-		host:      host,
-		log:       log,
+		handler:      clients.Handler,
+		stats:        clients.Stats,
+		closeConn:    closeConn,
+		inbounds:     inbounds,
+		byTag:        byTag,
+		drift:        drift,
+		broken:       map[string]error{},
+		statsMissing: cfg.StatsMissing,
+		host:         host,
+		log:          log,
 	}, nil
 }
 
@@ -252,7 +266,7 @@ func (s *Session) removeUser(ctx context.Context, tag, email string) error {
 func (s *Session) listUsers(ctx context.Context, tag string) ([]*protocol.User, error) {
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	resp, err := s.client.GetInboundUsers(callCtx, &command.GetInboundUserRequest{Tag: tag})
+	resp, err := s.handler.GetInboundUsers(callCtx, &command.GetInboundUserRequest{Tag: tag})
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
@@ -282,7 +296,7 @@ func (s *Session) liveCredentials(ctx context.Context, in inbound) (map[string]s
 func (s *Session) alter(ctx context.Context, tag string, op proto.Message) error {
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	_, err := s.client.AlterInbound(callCtx, &command.AlterInboundRequest{
+	_, err := s.handler.AlterInbound(callCtx, &command.AlterInboundRequest{
 		Tag:       tag,
 		Operation: serial.ToTypedMessage(op),
 	})

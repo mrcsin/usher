@@ -11,10 +11,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	awgv1 "github.com/mrcsin/awg-grpc/gen/awg/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/mrcsin/usher/internal/state"
+	"github.com/mrcsin/usher/internal/status"
 )
 
 type sessionEnv struct {
@@ -280,4 +283,86 @@ func TestLogHasNoSecrets(t *testing.T) {
 			t.Errorf("log contains a secret: %q", s)
 		}
 	}
+}
+
+func TestPeerStats(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	key := func(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
+	names := map[string]string{string(key(1)): "phone", string(key(2)): "laptop", string(key(3)): "tablet"}
+	peer := func(k []byte, ago time.Duration, rx, tx uint64) *awgv1.PeerStatus {
+		return &awgv1.PeerStatus{PublicKey: k, RxBytes: rx, TxBytes: tx, LastHandshake: timestamppb.New(now.Add(-ago))}
+	}
+	tests := []struct {
+		name  string
+		peers []*awgv1.PeerStatus
+		users []string
+		want  map[string]status.UserStats
+	}{
+		{"never handshaked", []*awgv1.PeerStatus{{PublicKey: key(1)}}, []string{"phone"},
+			map[string]status.UserStats{"phone": {}}},
+		{"handshake in the future", []*awgv1.PeerStatus{peer(key(1), -30*time.Second, 10, 20)}, []string{"phone"},
+			map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20}}},
+		{"handshake exactly 180 s ago", []*awgv1.PeerStatus{peer(key(1), 180*time.Second, 10, 20)}, []string{"phone"},
+			map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20}}},
+		{"handshake 179 s ago", []*awgv1.PeerStatus{peer(key(1), 179*time.Second, 10, 20)}, []string{"phone"},
+			map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20, Online: true}}},
+		{"handshake 181 s ago", []*awgv1.PeerStatus{peer(key(1), 181*time.Second, 10, 20)}, []string{"phone"},
+			map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20}}},
+		{"peer of a user not requested", []*awgv1.PeerStatus{peer(key(1), 0, 1, 2), peer(key(2), 0, 3, 4)}, []string{"phone"},
+			map[string]status.UserStats{"phone": {Uplink: 1, Downlink: 2, Online: true}}},
+		{"foreign key", []*awgv1.PeerStatus{peer(key(7), 0, 1, 2)}, []string{"phone"},
+			map[string]status.UserStats{}},
+		{"requested user without a peer", []*awgv1.PeerStatus{peer(key(1), 0, 1, 2)}, []string{"phone", "tablet"},
+			map[string]status.UserStats{"phone": {Uplink: 1, Downlink: 2, Online: true}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := peerStats(tt.peers, names, tt.users, now); !maps.Equal(got, tt.want) {
+				t.Errorf("peerStats = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStats(t *testing.T) {
+	t.Run("maps the listed peers to users", func(t *testing.T) {
+		e := newSessionEnv(t, named("awg0", "10.8.1.1/24"))
+		s := e.open()
+		if _, _, err := s.Prepare(e.st, "awg0", []string{"phone"}); err != nil {
+			t.Fatal(err)
+		}
+		var requested string
+		e.client.listPeers = func(r *awgv1.ListPeersRequest) (*awgv1.ListPeersResponse, error) {
+			requested = r.GetInterfaceName()
+			return &awgv1.ListPeersResponse{Peers: []*awgv1.PeerStatus{{
+				PublicKey:     e.st.AWG["awg0/phone"].PublicKey(),
+				LastHandshake: timestamppb.Now(),
+				RxBytes:       100,
+				TxBytes:       200,
+			}}}, nil
+		}
+
+		got, err := s.Stats(context.Background(), e.st, "awg0", []string{"phone"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if requested != "awg0" {
+			t.Errorf("requested interface = %q", requested)
+		}
+		want := map[string]status.UserStats{"phone": {Uplink: 100, Downlink: 200, Online: true}}
+		if !maps.Equal(got, want) {
+			t.Errorf("Stats = %v, want %v", got, want)
+		}
+	})
+	t.Run("returns a ListPeers error wrapped", func(t *testing.T) {
+		e := newSessionEnv(t, named("awg0", "10.8.1.1/24"))
+		s := e.open()
+		down := errors.New("down")
+		e.client.listPeers = func(*awgv1.ListPeersRequest) (*awgv1.ListPeersResponse, error) { return nil, down }
+
+		_, err := s.Stats(context.Background(), e.st, "awg0", []string{"phone"})
+		if !errors.Is(err, down) || !strings.Contains(err.Error(), "listing peers") {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }

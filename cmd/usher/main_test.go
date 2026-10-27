@@ -5,13 +5,21 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
+	"net"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/xtls/xray-core/app/proxyman/command"
+	statscmd "github.com/xtls/xray-core/app/stats/command"
+	"google.golang.org/grpc"
+
 	"github.com/mrcsin/usher/internal/pass"
+	"github.com/mrcsin/usher/internal/status"
 )
 
 func TestRun(t *testing.T) {
@@ -75,6 +83,69 @@ func TestBackends(t *testing.T) {
 	session, err := xr.Open(context.Background())
 	if err == nil || session != nil {
 		t.Errorf("Open = %v, %v, want a nil session and an error for the missing config", session, err)
+	}
+}
+
+type fakeHandlerServer struct {
+	command.UnimplementedHandlerServiceServer
+}
+
+func (fakeHandlerServer) ListInbounds(context.Context, *command.ListInboundsRequest) (*command.ListInboundsResponse, error) {
+	return &command.ListInboundsResponse{}, nil
+}
+
+type fakeStatsServer struct {
+	statscmd.UnimplementedStatsServiceServer
+}
+
+func (fakeStatsServer) QueryStats(context.Context, *statscmd.QueryStatsRequest) (*statscmd.QueryStatsResponse, error) {
+	return &statscmd.QueryStatsResponse{Stat: []*statscmd.Stat{{Name: "user>>>in/alice>>>traffic>>>uplink", Value: 5}}}, nil
+}
+
+func (fakeStatsServer) GetAllOnlineUsers(context.Context, *statscmd.GetAllOnlineUsersRequest) (*statscmd.GetAllOnlineUsersResponse, error) {
+	return &statscmd.GetAllOnlineUsersResponse{Users: []string{"user>>>in/alice>>>online"}}, nil
+}
+
+// TestXrayBackendDialsBothServices runs the dial closure of the xray backend against a gRPC server
+// on a unix socket: Open calls HandlerService and Stats calls StatsService.
+func TestXrayBackendDialsBothServices(t *testing.T) {
+	// A short directory: macOS caps a unix socket path at 104 bytes.
+	dir, err := os.MkdirTemp("", "usher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "api.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	command.RegisterHandlerServiceServer(server, fakeHandlerServer{})
+	statscmd.RegisterStatsServiceServer(server, fakeStatsServer{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+
+	config := filepath.Join(dir, "config.json")
+	const xrayConfig = `{"inbounds": [], "stats": {}, "api": {"services": ["HandlerService", "StatsService"]},
+		"policy": {"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true}}}}`
+	if err := os.WriteFile(config, []byte(xrayConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := environment{XraySocket: socket, XrayConfig: config}
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+
+	session, err := xrayBackend(env, log).Open(t.Context())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer session.Close()
+	got, err := session.Stats(t.Context(), nil, "in", []string{"alice"})
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if want := map[string]status.UserStats{"alice": {Uplink: 5, Online: true}}; !maps.Equal(got, want) {
+		t.Errorf("Stats = %v, want %v", got, want)
 	}
 }
 

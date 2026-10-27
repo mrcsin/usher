@@ -175,3 +175,37 @@ func TestEnvironmentFromFixedPaths(t *testing.T) {
 		t.Errorf("paths = %q %q %q", got.ConfigPath, got.ClientsDir, got.StatePath)
 	}
 }
+
+func TestEnvironmentFromStatusDir(t *testing.T) {
+	tests := []struct {
+		name    string
+		dir     string
+		want    string
+		wantErr string
+	}{
+		{name: "set", dir: "/srv/usher/status", want: "/srv/usher/status/usher.prom"},
+		{name: "unset", dir: "", want: ""},
+		{name: "relative", dir: "status", wantErr: "USHER_STATUS_DIR"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{
+				"USHER_HOST": "203.0.113.10", "USHER_AWG_SOCKET": "/run/awg.sock", "USHER_DNS": "1.1.1.1",
+				"USHER_STATUS_DIR": tt.dir,
+			}
+			got, err := environmentFrom(func(key string) string { return env[key] })
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want it to name %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.StatusPath != tt.want {
+				t.Errorf("StatusPath = %q, want %q", got.StatusPath, tt.want)
+			}
+		})
+	}
+}

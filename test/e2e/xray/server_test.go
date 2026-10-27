@@ -81,8 +81,13 @@ func (s *server) config(shortID string) ([]byte, error) {
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
 		"api": map[string]any{
-			"tag": "api", "listen": "/run/xray/api.sock,0660", "services": []string{"HandlerService"},
+			"tag": "api", "listen": "/run/xray/api.sock,0660",
+			"services": []string{"HandlerService", "StatsService"},
 		},
+		"stats": map[string]any{},
+		"policy": map[string]any{"levels": map[string]any{"0": map[string]any{
+			"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true,
+		}}},
 		"inbounds": []any{
 			inbound(tagHysteria, 4443, "hysteria",
 				map[string]any{"version": 2, "clients": []any{}},

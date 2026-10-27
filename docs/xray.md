@@ -1,7 +1,7 @@
 # Xray
 
 This page covers the server config contract, the supported shapes, the `x-usher` block, TLS
-trust, client compatibility and config edits.
+trust, client compatibility, stats and config edits.
 
 ## Server config
 
@@ -10,8 +10,8 @@ trust, client compatibility and config edits.
   comments.
 - Mount the directory that holds the file into both containers, not the file itself. An editor
   replaces the file, and a bind mount of a single file keeps showing the old one.
-- `api.services` is `["HandlerService"]`, and `api.listen` is a unix socket with mode `0660`, such
-  as `/run/xray/api.sock,0660`.
+- `api.services` is `["HandlerService"]`, plus `StatsService` for [stats](#stats), and
+  `api.listen` is a unix socket with mode `0660`, such as `/run/xray/api.sock,0660`.
 - The socket directory is a bind mount that usher can write. A hard kill leaves a stale socket,
   and Xray then fails to start. usher removes that socket, and the restart policy
   (`restart: unless-stopped`) starts Xray again. usher never removes the socket of a running Xray.
@@ -103,6 +103,45 @@ release can change this.
   client core before 26.3.27 sends `firefox` without the share and fails; `chrome` connects there.
 - sing-box fails Reality on every fingerprint and has no xhttp transport. VLESS ws, Trojan, VMess
   and Hysteria2 with salamander work.
+
+## Stats
+
+With `USHER_STATUS_DIR` set, usher reads per-user traffic and online state through Xray's
+`StatsService` for the status file of the [README](../README.md#stats). Xray counts them only with
+these switches, all present in [`deploy/xray/config.json`](../deploy/xray/config.json):
+
+```json
+"api": { "services": ["HandlerService", "StatsService"] },
+"stats": {},
+"policy": {
+  "levels": {
+    "0": { "statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true }
+  }
+}
+```
+
+usher creates users at level 0. Xray merges a level onto its default policy, so these keys leave
+the timeouts unchanged. Xray reads them only at start: restart Xray after you add them.
+
+usher checks the file for the switches at every pass. When one is missing or has the wrong type, it
+logs `reading stats` with `stats are off in the xray config:` and the missing keys, for every
+inbound and every pass, and writes no user series for Xray. `usher_interface_up` is not affected.
+usher matches the service name without regard to case, as Xray does.
+
+usher reads the file, not the running Xray. After you add the switches and before Xray restarts,
+two cases differ. When the running Xray has no `StatsService`, usher logs `reading stats`.
+When it has `StatsService` but not the other switches, Xray counts nothing, and usher writes 0
+bytes and online 0 for every user and logs no error.
+
+- Online means the user has at least one open proxied connection. A client that is idle with no
+  connection reads 0. A quiet connection keeps it at 1 until Xray's `connIdle` closes it, 300 s by
+  default.
+- Xray does not count connections from `127.0.0.1` or `[::1]`, so a client that reaches Xray
+  through a local proxy in front of it never reads online.
+- Xray creates the traffic counters of a user at the first connection. Until then the user reads
+  0 bytes.
+- Xray keeps the counters of a removed user until it restarts. A user who is removed and added
+  back continues from the old value.
 
 ## Removing a user
 

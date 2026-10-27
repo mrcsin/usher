@@ -31,11 +31,13 @@ services:
       - ../.e2e/config:/srv/usher/config:ro
       - ../.e2e/clients:/srv/usher/clients
       - ../.e2e/state:/srv/usher/state
+      - ../.e2e/status:/srv/usher/status
       - awg-sock:/run/awg-grpc
     environment:
       USHER_HOST: 172.30.99.2
       USHER_AWG_SOCKET: /run/awg-grpc/awg.sock
       USHER_DNS: 1.1.1.1
+      USHER_STATUS_DIR: /srv/usher/status
   # Handshake peer of the e2e test; test/e2e writes its config to ../.e2e/client.
   client:
     profiles: [handshake]

@@ -4,7 +4,14 @@
   "api": {
     "tag": "api",
     "listen": "/run/xray/api.sock,0660",
-    "services": ["HandlerService"]
+    "services": ["HandlerService", "StatsService"]
+  },
+  // Per-user traffic and online counters that usher writes to its status file.
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": { "statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true }
+    }
   },
   "inbounds": [
     {

@@ -35,7 +35,7 @@ flowchart TD
     awg1[awg1]
   end
   usher -- "USHER_AWG_SOCKET, gRPC" --> awg
-  usher -- "USHER_XRAY_SOCKET, gRPC HandlerService" --> xray
+  usher -- "USHER_XRAY_SOCKET, gRPC HandlerService, StatsService" --> xray
   awg -- "awg set" --> awg0
   awg -- "awg set" --> awg1
 ```
@@ -55,13 +55,14 @@ and a supported protocol: it removes any peer or user that `usher.yml` does not 
 ## Users
 
 usher keeps everything under `/srv/usher` in its container; the example compose file mounts the
-three directories:
+four directories:
 
 ```
 /srv/usher/
 ├── config/usher.yml                  you write it, usher only reads it
 ├── state/users.json                  usher writes it, back it up
-└── clients/<user>/<interface>.<ext>  usher writes it, hand the files to the users
+├── clients/<user>/<interface>.<ext>  usher writes it, hand the files to the users
+└── status/usher.prom                 usher writes it with USHER_STATUS_DIR set, see Stats
 ```
 
 `config/usher.yml`:
@@ -114,9 +115,10 @@ With one backend, delete the other service and its socket variables from the fil
 | `USHER_DNS`         | with `USHER_AWG_SOCKET`  | `1.1.1.1,1.0.0.1`        | DNS servers in AmneziaWG configs                 |
 | `USHER_XRAY_SOCKET` | one of the two sockets   | `/run/xray/api.sock`     | Xray API socket; enables Xray                    |
 | `USHER_XRAY_CONFIG` | with `USHER_XRAY_SOCKET` | `/etc/xray/config.json`  | Xray server config, read-only                    |
+| `USHER_STATUS_DIR`  | no                       | `/srv/usher/status`      | directory of `usher.prom`, see [Stats](#stats)   |
 
-`USHER_AWG_SOCKET`, `USHER_XRAY_SOCKET` and `USHER_XRAY_CONFIG` are absolute paths inside the
-usher container.
+`USHER_AWG_SOCKET`, `USHER_XRAY_SOCKET`, `USHER_XRAY_CONFIG` and `USHER_STATUS_DIR` are absolute
+paths inside the usher container.
 
 `USHER_HOST` is an address because a client resolves a host name through its DNS server, which
 sits inside the tunnel. When the tunnel drops, the client cannot resolve the name and does not
@@ -142,6 +144,45 @@ interface name in `usher.yml`. usher puts users into the running inbounds throug
 on 127.0.0.1:10808 and an http proxy on 127.0.0.1:10809; the `.txt` file is a share link.
 [`docs/xray.md`](docs/xray.md) covers the server config contract, the supported shapes, the
 `x-usher` block, TLS trust, client compatibility and config edits.
+
+## Stats
+
+With `USHER_STATUS_DIR` set, usher writes `usher.prom` into that directory after every pass, in the
+Prometheus text format. node_exporter's textfile collector serves it; usher opens no port for it.
+Each pass replaces the whole file, so it holds the last pass only, and Prometheus keeps the
+history. Without the variable usher writes no file. [`docs/operations.md`](docs/operations.md)
+covers the node_exporter setup, and Xray needs the stats switches of
+[`docs/xray.md`](docs/xray.md#stats).
+
+| Metric                            | Labels              | Value                                         |
+| --------------------------------- | ------------------- | --------------------------------------------- |
+| `usher_interface_up`              | `interface`         | 1 when the last pass applied the interface, 0 when it failed it |
+| `usher_user_online`               | `interface`, `user` | 1 when the user is connected now              |
+| `usher_user_uplink_bytes_total`   | `interface`, `user` | bytes received from the user                  |
+| `usher_user_downlink_bytes_total` | `interface`, `user` | bytes sent to the user                        |
+
+Both backends write the same metrics; only the `interface` value tells them apart. Their values
+mean different things:
+
+|                  | AmneziaWG                                          | Xray                                             |
+| ---------------- | -------------------------------------------------- | ------------------------------------------------ |
+| online           | a handshake less than 180 s ago: 1 while the tunnel is up, 0 up to 180 s after the client disconnects | at least one open proxied connection; an idle client reads 0 |
+| bytes            | encrypted packets, keepalives included             | proxied payload                                  |
+| counters reset   | when the peer is recreated or the interface restarts | when Xray restarts                             |
+| users in the file | users of the interface in `usher.yml` that have a peer | every user of the inbound in `usher.yml`     |
+
+`rate()` and `increase()` handle the counter resets. A user gets series only on the interfaces
+`usher.yml` lists for that user. When usher cannot read the stats of an interface, it logs
+`reading stats` and leaves the users of that interface out of the file: a missing series
+means unknown, and usher never writes 0 for a value it could not read. An interface that failed
+before `Apply` has no user series. The interfaces of a backend that is down are absent.
+
+usher keeps no last-seen value. Prometheus derives it from `usher_user_online`; this query gives the
+time of the last sample with value 1 in the last 30 days:
+
+```promql
+max_over_time((timestamp(usher_user_online == 1))[30d:1m])
+```
 
 ## License
 

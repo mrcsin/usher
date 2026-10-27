@@ -6,4 +6,5 @@ type Settings struct {
 	ConfigPath string
 	ClientsDir string
 	StatePath  string
+	StatusPath string // the status file; empty means usher writes none
 }

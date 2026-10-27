@@ -34,6 +34,8 @@ const (
 	// The deadlines follow the production constants: 3 s file poll, 500 ms settle, 30 s refill.
 	changeTimeout = 10 * time.Second
 	refillTimeout = 60 * time.Second
+	// statsTimeout is longer than one refill tick, so a pass runs after the traffic.
+	statsTimeout = 45 * time.Second
 )
 
 const (
@@ -42,9 +44,11 @@ const (
 	clientsDir  = "clients"
 	stateDir    = "state"
 	clientDir   = "client"
+	statusDir   = "status"
+	statusFile  = "usher.prom"
 )
 
-var scratchDirs = []string{configDir, clientsDir, stateDir, clientDir}
+var scratchDirs = []string{configDir, clientsDir, stateDir, clientDir, statusDir}
 
 var bothUsers = usherYAML("phone", "laptop")
 
@@ -148,6 +152,7 @@ func TestE2E(t *testing.T) {
 	}{
 		{"enroll", testEnroll},
 		{"handshake", testHandshake},
+		{"stats", testStats},
 		{"switch off", testSwitchOff},
 		{"broken file and refill", testBrokenFileAndRefill},
 	}
@@ -218,6 +223,50 @@ func testHandshake(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// testStats reads the status file after the handshake: phone is online and both counters moved.
+func testStats(t *testing.T) {
+	labels := `{interface="` + iface + `",user="phone"}`
+	waitFor(t, within(statsTimeout), "stats of phone in the status file", func() error {
+		samples, err := readStatus(e2ePath(statusDir, statusFile))
+		if err != nil {
+			return err
+		}
+		if got, ok := samples["usher_user_online"+labels]; !ok || got != 1 {
+			return fmt.Errorf("usher_user_online%s = %v (present %v), want 1", labels, got, ok)
+		}
+		for _, name := range []string{"usher_user_uplink_bytes_total", "usher_user_downlink_bytes_total"} {
+			if got := samples[name+labels]; got <= 0 {
+				return fmt.Errorf("%s%s = %v, want above 0", name, labels, got)
+			}
+		}
+		return nil
+	})
+}
+
+// readStatus maps each sample of the status file, as name{labels}, to its value.
+func readStatus(path string) (map[string]float64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	samples := map[string]float64{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		i := strings.LastIndexByte(line, ' ')
+		if i < 0 {
+			return nil, fmt.Errorf("status line %q has no value", line)
+		}
+		value, err := strconv.ParseFloat(line[i+1:], 64)
+		if err != nil {
+			return nil, fmt.Errorf("status line %q: %w", line, err)
+		}
+		samples[line[:i]] = value
+	}
+	return samples, nil
 }
 
 func clientConfigCopy(t *testing.T, original string) string {

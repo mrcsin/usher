@@ -6,6 +6,7 @@ package xray
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -31,6 +32,8 @@ const (
 	driftTimeout   = 60 * time.Second
 	restartTimeout = 45 * time.Second
 	killTimeout    = 90 * time.Second
+	// statsTimeout is longer than one refill tick, so a pass runs after the traffic.
+	statsTimeout = 45 * time.Second
 	// refillTick is a little longer than the 30 s refill interval.
 	refillTick   = 35 * time.Second
 	failedRounds = 3
@@ -45,6 +48,8 @@ const (
 	sockDir     = "sock"
 	xrayDir     = "xray"
 	clientDir   = "client"
+	statusDir   = "status"
+	statusFile  = "usher.prom"
 )
 
 type composeProject struct{}
@@ -111,7 +116,7 @@ func runSuite(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "removing %s: %v\n", scratchRoot, err)
 		return 1
 	}
-	dirs := []string{configDir, clientsDir, stateDir, sockDir, xrayDir,
+	dirs := []string{configDir, clientsDir, stateDir, sockDir, xrayDir, statusDir,
 		filepath.Join(clientDir, "alice"), filepath.Join(clientDir, "bob")}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(project.path(dir), 0o755); err != nil {
@@ -257,6 +262,7 @@ func TestXray(t *testing.T) {
 		run  func(t *testing.T)
 	}{
 		{"connect", testConnect},
+		{"stats", testStats},
 		{"switch off", testSwitchOff},
 		{"restart", testRestart},
 		{"hard kill", testHardKill},
@@ -284,6 +290,69 @@ func testConnect(t *testing.T) {
 			return allWork(user, routes())
 		})
 	}
+}
+
+// testStats reads the status file after both users fetched through every inbound. alice holds one
+// tunnel open through the Reality inbound, so she reads online there; the fetches of the connect
+// step have closed their connections, so online is asserted only for that tunnel.
+func testStats(t *testing.T) {
+	held := routesOf(tagReality)[0]
+	tunnel, err := openTunnel("alice", held)
+	if err != nil {
+		t.Fatalf("opening a tunnel: %v", err)
+	}
+	defer tunnel.Close()
+	online := `usher_user_online{interface="` + held.tag + `",user="alice"}`
+
+	waitFor(t, statsTimeout, "stats of every inbound in the status file", func() error {
+		samples, err := readStatus(project.path(statusDir, statusFile))
+		if err != nil {
+			return err
+		}
+		var errs []error
+		if got := samples[online]; got != 1 {
+			errs = append(errs, fmt.Errorf("%s = %v, want 1", online, got))
+		}
+		for _, tag := range tags {
+			up := `usher_interface_up{interface="` + tag + `"}`
+			if got := samples[up]; got != 1 {
+				errs = append(errs, fmt.Errorf("%s = %v, want 1", up, got))
+			}
+			for _, user := range []string{"alice", "bob"} {
+				labels := `{interface="` + tag + `",user="` + user + `"}`
+				for _, name := range []string{"usher_user_uplink_bytes_total", "usher_user_downlink_bytes_total"} {
+					if got := samples[name+labels]; got <= 0 {
+						errs = append(errs, fmt.Errorf("%s%s = %v, want above 0", name, labels, got))
+					}
+				}
+			}
+		}
+		return errors.Join(errs...)
+	})
+}
+
+// readStatus maps each sample of the status file, as name{labels}, to its value.
+func readStatus(path string) (map[string]float64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	samples := map[string]float64{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		i := strings.LastIndexByte(line, ' ')
+		if i < 0 {
+			return nil, fmt.Errorf("status line %q has no value", line)
+		}
+		value, err := strconv.ParseFloat(line[i+1:], 64)
+		if err != nil {
+			return nil, fmt.Errorf("status line %q: %w", line, err)
+		}
+		samples[line[:i]] = value
+	}
+	return samples, nil
 }
 
 // testSwitchOff removes bob from usher.yml. Once usher logs the removal from every inbound, a new

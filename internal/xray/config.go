@@ -84,20 +84,31 @@ func silenceXrayLog() {
 	silenceOnce.Do(func() { log.RegisterHandler(discardLog{}) })
 }
 
+// fileConfig is what usher reads from the Xray config. StatsMissing names each switch that
+// per-user stats need and the config lacks.
+type fileConfig struct {
+	Inbounds     []inbound
+	StatsMissing []string
+}
+
+// statsLevel is the policy level usher creates users at.
+const statsLevel = "0"
+
 // readConfig returns invalid inbounds with Err set; an error means the file is unusable.
-func readConfig(path string) ([]inbound, error) {
+func readConfig(path string) (fileConfig, error) {
 	silenceXrayLog()
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading xray config: %w", err)
+		return fileConfig{}, fmt.Errorf("reading xray config: %w", err)
 	}
 	defer f.Close()
 
 	var file struct {
 		Inbounds []json.RawMessage `json:"inbounds"`
+		statsSwitches
 	}
 	if err := json.NewDecoder(&xjson.Reader{Reader: f}).Decode(&file); err != nil {
-		return nil, fmt.Errorf("parsing xray config %s: %w", path, err)
+		return fileConfig{}, fmt.Errorf("parsing xray config %s: %w", path, err)
 	}
 
 	var inbounds []inbound
@@ -105,7 +116,7 @@ func readConfig(path string) ([]inbound, error) {
 	for i, data := range file.Inbounds {
 		raw, err := decodeObject(data)
 		if err != nil {
-			return nil, fmt.Errorf("parsing xray config %s: inbounds[%d]: %w", path, i, err)
+			return fileConfig{}, fmt.Errorf("parsing xray config %s: inbounds[%d]: %w", path, i, err)
 		}
 		tag, _ := raw["tag"].(string)
 		protocol, _ := raw["protocol"].(string)
@@ -125,7 +136,37 @@ func readConfig(path string) ([]inbound, error) {
 		seen[tag] = true
 		inbounds = append(inbounds, in)
 	}
-	return inbounds, nil
+	return fileConfig{Inbounds: inbounds, StatsMissing: file.missing()}, nil
+}
+
+// statsSwitches are the parts of the Xray config that turn on per-user stats. Policy and API
+// decode as any, so a wrongly typed switch reads as missing and never fails the backend.
+type statsSwitches struct {
+	Stats  json.RawMessage `json:"stats"`
+	Policy any             `json:"policy"`
+	API    any             `json:"api"`
+}
+
+func (sw statsSwitches) missing() []string {
+	var keys []string
+	if len(sw.Stats) == 0 || string(sw.Stats) == "null" {
+		keys = append(keys, "stats")
+	}
+	level := object(object(object(sw.Policy)["levels"])[statsLevel])
+	for _, key := range []string{"statsUserUplink", "statsUserDownlink", "statsUserOnline"} {
+		if on, _ := level[key].(bool); !on {
+			keys = append(keys, "policy.levels."+statsLevel+"."+key)
+		}
+	}
+	// Xray matches service names without regard to case.
+	services, _ := object(sw.API)["services"].([]any)
+	if !slices.ContainsFunc(services, func(v any) bool {
+		s, _ := v.(string)
+		return strings.EqualFold(s, "StatsService")
+	}) {
+		keys = append(keys, "StatsService in api.services")
+	}
+	return keys
 }
 
 func decodeInbound(raw map[string]any) (conf.InboundDetourConfig, error) {
