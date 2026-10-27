@@ -35,9 +35,41 @@ usher writes the file with mode `0644`. A node_exporter that runs as another use
 reads only `*.prom` files, so it skips the temporary file of a write in progress.
 
 A pass that stops early, for example on a `users.json` error, or that a stop signal interrupts,
-writes no file, and the file keeps the previous content. node_exporter's
-`node_textfile_mtime_seconds` for the file then stops moving; usher writes no timestamp of its own.
-A write error is logged as `writing status file`.
+writes no file, and the file keeps the previous content. A stopped usher leaves it the same way.
+node_exporter keeps serving that content, so every interface still reads 1. usher writes no
+timestamp of its own; node_exporter's `node_textfile_mtime_seconds` for the file stops moving. A
+write error is logged as `writing status file`.
 
-When every backend is down, usher still writes the file, but it holds no series. Alert on
-`absent(usher_interface_up)` as well.
+### Alerts
+
+usher reports most failures by leaving series out, so a rule on `usher_interface_up == 0` alone
+misses them:
+
+- The interfaces of a backend that is down are absent. The other backend keeps
+  `usher_interface_up` present, so `absent(usher_interface_up)` fires only when every backend is
+  down and the file holds no series. Each interface needs an `absent` rule of its own.
+- A stale file keeps its last values. Only its age shows the failure.
+
+```yaml
+groups:
+  - name: usher
+    rules:
+      - alert: UsherInterfaceDown
+        expr: usher_interface_up == 0
+        for: 2m
+      - alert: UsherInterfaceAbsent
+        expr: >-
+          absent(usher_interface_up{interface="awg0"})
+          or absent(usher_interface_up{interface="vless-reality"})
+        for: 2m
+      - alert: UsherStatusEmpty
+        expr: absent(usher_interface_up)
+        for: 2m
+      - alert: UsherStatusStale
+        expr: time() - node_textfile_mtime_seconds{file=~".*usher.prom"} > 180
+        for: 2m
+```
+
+`UsherInterfaceAbsent` lists the interface names of the deployment; add a term when you add an
+interface to a backend. usher runs a pass at least every 30 s, so 180 s of file age is six missed
+passes.
