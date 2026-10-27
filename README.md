@@ -166,10 +166,16 @@ mean different things:
 
 |                  | AmneziaWG                                          | Xray                                             |
 | ---------------- | -------------------------------------------------- | ------------------------------------------------ |
-| online           | a handshake less than 180 s ago: 1 while the tunnel is up, 0 up to 180 s after the client disconnects | at least one open proxied connection; an idle client reads 0 |
+| online           | a handshake less than 180 s ago; a sleeping phone reads 0 | at least one open proxied connection; an idle client reads 0 |
 | bytes            | encrypted packets, keepalives included             | proxied payload                                  |
 | counters reset   | when the peer is recreated or the interface restarts | when Xray restarts                             |
 | users in the file | users of the interface in `usher.yml` that have a peer | every user of the inbound in `usher.yml`     |
+
+An AmneziaWG client handshakes about every 2 minutes while it sends packets, and the
+`PersistentKeepalive = 25` of its config keeps it sending while the device is awake. A phone that
+sleeps sends no keepalive: it reads 0 while its app still shows the tunnel on, and 1 for a few
+minutes each time it wakes. 180 s is the WireGuard key lifetime; a session without a newer
+handshake carries no traffic after it. A disconnected client reads 0 at most 180 s later.
 
 `rate()` and `increase()` handle the counter resets. A user gets series only on the interfaces
 `usher.yml` lists for that user. When usher cannot read the stats of an interface, it logs
