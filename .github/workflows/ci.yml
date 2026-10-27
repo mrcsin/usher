@@ -1,9 +1,30 @@
 name: ci
 
+# No test reads these paths. Keep both lists equal.
 on:
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - "logo.png"
+      - ".zed/**"
+      - "deploy/compose.example.yml"
+      - "deploy/xray/**"
+      - "deploy/usher/**"
+      - ".github/workflows/release.yml"
   push:
     branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - "logo.png"
+      - ".zed/**"
+      - "deploy/compose.example.yml"
+      - "deploy/xray/**"
+      - "deploy/usher/**"
+      - ".github/workflows/release.yml"
 
 permissions:
   contents: read
