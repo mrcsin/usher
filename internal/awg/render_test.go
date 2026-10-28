@@ -85,6 +85,24 @@ func TestRender(t *testing.T) {
 			want:   []string{"DNS = 9.9.9.9\n\n[Peer]\n"},
 		},
 		{
+			name:   "mtu follows dns",
+			dns:    oneDNS,
+			mutate: func(i *awgv1.InterfaceStatus) { i.Mtu = 1280 },
+			want:   []string{"DNS = 9.9.9.9\nMTU = 1280\nJc = 4\n"},
+		},
+		{
+			name:   "mtu without client params",
+			dns:    oneDNS,
+			mutate: func(i *awgv1.InterfaceStatus) { i.Mtu = 1280; i.ClientParams = nil },
+			want:   []string{"DNS = 9.9.9.9\nMTU = 1280\n\n[Peer]\n"},
+		},
+		{
+			name:   "mtu 0 writes no mtu line",
+			dns:    oneDNS,
+			mutate: func(i *awgv1.InterfaceStatus) { i.Mtu = 0 },
+			want:   []string{"DNS = 9.9.9.9\nJc = 4\n"},
+		},
+		{
 			name: "newline in a value is an error",
 			dns:  oneDNS,
 			mutate: func(i *awgv1.InterfaceStatus) {

@@ -1,6 +1,6 @@
 services:
   awg:
-    image: ghcr.io/mrcsin/awg-grpc:v0.1.0
+    image: ghcr.io/mrcsin/awg-grpc:v0.2.0
     restart: unless-stopped
     # Docker's init is PID 1 and reaps orphans of awg-quick and PostUp commands.
     init: true

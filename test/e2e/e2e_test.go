@@ -30,6 +30,8 @@ const (
 	clientProfile = "handshake"
 	interfaceAddr = "10.99.0.1"
 	subnet        = "10.99.0.0/24"
+	// interfaceMTU is the MTU line of deploy/e2e/awg/awge2e0.conf.
+	interfaceMTU = "1280"
 
 	// The deadlines follow the production constants: 3 s file poll, 500 ms settle, 30 s refill.
 	changeTimeout = 10 * time.Second
@@ -199,6 +201,9 @@ func testHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the phone config: %v", err)
 	}
+	if !strings.Contains(string(original), "\nMTU = "+interfaceMTU+"\n") {
+		t.Fatalf("the phone config has no line MTU = %s", interfaceMTU)
+	}
 	conf := clientConfigCopy(t, string(original))
 	path := e2ePath(clientDir, "awgc0.conf")
 	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
@@ -223,6 +228,10 @@ func testHandshake(t *testing.T) {
 		}
 		return nil
 	})
+
+	if got := strings.TrimSpace(compose(t, "exec", "-T", "client", "cat", "/sys/class/net/awgc0/mtu")); got != interfaceMTU {
+		t.Errorf("MTU of awgc0 = %s, want %s", got, interfaceMTU)
+	}
 }
 
 // testStats reads the status file after the handshake: phone is online and both counters moved.

@@ -87,8 +87,10 @@ connection per pass, and every call has a 10 s deadline.
   name gets the same key and address back. usher never deletes entries.
 - Addresses are never freed: switched-off users keep theirs. A full subnet fails the whole
   interface, refill included. awg-grpc accepts at most 1000 peers per interface.
-- A change of the interface key, port or `client_params` rewrites every client config of that
-  interface; those configs are handed out again.
+- `Prepare` writes a `mtu` above 0 into every client config of the interface as `MTU`.
+- A change of the interface key, port, `client_params` or `mtu` rewrites every client config of
+  that interface; those configs are handed out again. awg-grpc reports a new `mtu` only after a
+  restart.
 
 ## Xray backend
 

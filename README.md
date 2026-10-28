@@ -136,6 +136,19 @@ lowest free address of the interface's IPv4 subnet, an X25519 key pair and a pre
 client `.conf` carries that address, `USHER_DNS`, the obfuscation parameters of the interface and
 `USHER_HOST` with the interface port as the endpoint. An interface holds at most 1000 users.
 
+When the awg-grpc `<name>.conf` has an `MTU` line, the client `.conf` carries the same
+`MTU = <n>` in `[Interface]`. Without that line the client `.conf` has no `MTU`, and each client
+app picks its own. usher copies the value and keeps no default of its own, so a client that
+imports its file uses the value the operator sets on the server. The awg-grpc example config sets
+`MTU = 1280`; its README section [MTU](https://github.com/mrcsin/awg-grpc#mtu) explains why.
+awg-grpc reports the value from v0.2.0; an older awg-grpc reports none, and the client `.conf` has
+no `MTU`.
+
+awg-grpc reads the `MTU` line once at start. After a change, restart the awg-grpc container. The
+restart applies the value to the interface, and usher rewrites every client file of the interface
+on its next pass and puts the peers back within 30 s. Keys and addresses stay the same. A user
+imports the new file to apply the new value.
+
 ## Xray
 
 You write the Xray server config, and usher fills its inbounds with users. An inbound tag is the

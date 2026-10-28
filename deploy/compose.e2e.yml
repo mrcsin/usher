@@ -1,7 +1,7 @@
 name: ushere2e
 services:
   awg:
-    image: ghcr.io/mrcsin/awg-grpc:v0.1.0
+    image: ghcr.io/mrcsin/awg-grpc:v0.2.0
     # Docker's init is PID 1 and reaps orphans of awg-quick and PostUp commands.
     init: true
     cap_add: [NET_ADMIN]
@@ -41,7 +41,7 @@ services:
   # Handshake peer of the e2e test; test/e2e writes its config to ../.e2e/client.
   client:
     profiles: [handshake]
-    image: ghcr.io/mrcsin/awg-grpc:v0.1.0
+    image: ghcr.io/mrcsin/awg-grpc:v0.2.0
     init: true
     cap_add: [NET_ADMIN]
     networks: [e2e]

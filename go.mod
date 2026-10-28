@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/cloudflare/circl v1.6.5
 	github.com/google/uuid v1.6.0
-	github.com/mrcsin/awg-grpc v0.1.0
+	github.com/mrcsin/awg-grpc v0.2.0
 	github.com/xtls/libxray v1.261010.0
 	github.com/xtls/xray-core v1.260327.1-0.20261010092107-701af60772cd
 	google.golang.org/grpc v1.84.0
