@@ -57,10 +57,12 @@ one `status.UserStats`, so the pass and the renderer never branch on the backend
 6. When `USHER_STATUS_DIR` is set, write the status file. Each interface of each open backend gets
    `usher_interface_up` 1 when it was applied and 0 when it failed. `Stats` runs for every
    interface that step 3 did not fail, applied or not, because an inbound with a usable drift
-   still serves its users. A `Stats` error is logged as `reading stats` and leaves the users
-   of that interface out; it never fails the interface and never changes `usher_interface_up`. A
-   name that two backends report is written once. `atomicfile.Write` replaces the file with mode
-   0644; a write error is logged and the pass goes on.
+   still serves its users. A `Stats` error is logged as `reading stats` and leaves the users of
+   that interface out; it never fails the interface and never changes `usher_interface_up`. A name
+   that two backends report is written once. Each interface that `usher.yml` references and no
+   open backend reports gets 0 and no user series; no backend owns it, so no `Stats` runs for it.
+   `atomicfile.Write` replaces the file with mode 0644; a write error is logged and the pass goes
+   on.
 7. When no backend is down, log every user and interface pair that no backend reports ("interface
    is not reported by any backend").
 8. Make `clients/` equal to the rendered files of applied interfaces plus the current files of

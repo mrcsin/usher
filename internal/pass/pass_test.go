@@ -188,6 +188,17 @@ func (e *passEnv) statusFile() string {
 	return string(content)
 }
 
+func (e *passEnv) wantStatus(t *testing.T, want []status.Interface) {
+	t.Helper()
+	content, err := os.ReadFile(e.settings.StatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(content), string(status.Render(want)); got != want {
+		t.Errorf("status file =\n%s\nwant\n%s", got, want)
+	}
+}
+
 // logLine returns the first log line that contains msg, or "" when none does.
 func (e *passEnv) logLine(msg string) string {
 	for line := range strings.Lines(e.logs.String()) {
@@ -639,9 +650,7 @@ func TestRunStatus(t *testing.T) {
 			if called && !slices.Equal(users, []string{"phone"}) {
 				t.Errorf("Stats users = %v", users)
 			}
-			if got, want := e.statusFile(), string(status.Render([]status.Interface{tt.want})); got != want {
-				t.Errorf("status file =\n%s\nwant\n%s", got, want)
-			}
+			e.wantStatus(t, []status.Interface{tt.want})
 			if tt.wantLog != "" {
 				line := e.logLine(tt.wantLog)
 				if !strings.Contains(line, "backend=awg-grpc") || !strings.Contains(line, "interface=awg0") {
@@ -664,13 +673,10 @@ func TestRunStatusStatsErrorKeepsOtherInterface(t *testing.T) {
 
 	e.run()
 
-	want := string(status.Render([]status.Interface{
+	e.wantStatus(t, []status.Interface{
 		{Name: "awg0", Up: true},
 		{Name: "awg1", Up: true, Users: phone},
-	}))
-	if got := e.statusFile(); got != want {
-		t.Errorf("status file =\n%s\nwant\n%s", got, want)
-	}
+	})
 }
 
 func TestRunStatusCancelled(t *testing.T) {
@@ -698,10 +704,102 @@ func TestRunStatusBackendDown(t *testing.T) {
 
 	e.run()
 
-	want := string(status.Render([]status.Interface{{Name: "vless", Up: true}}))
-	if got := e.statusFile(); got != want {
-		t.Errorf("status file =\n%s\nwant\n%s", got, want)
+	e.wantStatus(t, []status.Interface{{Name: "awg0"}, {Name: "vless", Up: true}})
+}
+
+func TestRunStatusUnreportedInterface(t *testing.T) {
+	phone := map[string]status.UserStats{"phone": {Uplink: 10, Downlink: 20, Online: true}}
+	fb := &fakeBackend{session: &fakeSession{
+		names: []string{"awg0"},
+		stats: map[string]map[string]status.UserStats{"awg0": phone},
+	}}
+	e := newPassEnv(t, "phone: [awg0, vless]\n", fb.backend("awg-grpc", ".conf"))
+	e.enableStatus()
+
+	e.run()
+
+	e.wantStatus(t, []status.Interface{
+		{Name: "awg0", Up: true, Users: phone},
+		{Name: "vless"},
+	})
+	if got := slices.Sorted(maps.Keys(fb.session.statsCalls)); !slices.Equal(got, []string{"awg0"}) {
+		t.Errorf("Stats called for %v, want only awg0", got)
 	}
+	if _, ok := fb.session.applied["vless"]; ok {
+		t.Errorf("vless was applied: %v", fb.session.applied)
+	}
+	line := e.logLine("interface is not reported by any backend")
+	if !strings.Contains(line, "interface=vless") {
+		t.Errorf("log line %q does not name vless; log: %s", line, e.logs)
+	}
+}
+
+func TestRunStatusInterfaceLeaves(t *testing.T) {
+	fb := &fakeBackend{session: &fakeSession{names: []string{"awg0", "awg1"}}}
+	e := newPassEnv(t, "phone: [awg0, awg1]\n", fb.backend("awg-grpc", ".conf"))
+	e.enableStatus()
+	steps := []struct {
+		name   string
+		change func()
+		want   []status.Interface
+	}{
+		{"reported", func() {},
+			[]status.Interface{{Name: "awg0", Up: true}, {Name: "awg1", Up: true}}},
+		{"interface removed", func() { fb.session.names = []string{"awg0"} },
+			[]status.Interface{{Name: "awg0", Up: true}, {Name: "awg1"}}},
+		{"last user leaves", func() { e.writeConfig("phone: [awg0]\n") },
+			[]status.Interface{{Name: "awg0", Up: true}}},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			step.change()
+			e.run()
+			e.wantStatus(t, step.want)
+		})
+	}
+}
+
+func TestRunStatusBackendDownHidesUnreported(t *testing.T) {
+	awg := &fakeBackend{openErr: errors.New("no socket"), session: &fakeSession{}}
+	xray := &fakeBackend{session: &fakeSession{names: []string{"vless"}}}
+	e := newPassEnv(t, "phone: [awg0, vless, vless-old]\n",
+		awg.backend("awg-grpc", ".conf"), xray.backend("xray", ".txt"))
+	e.enableStatus()
+
+	e.run()
+
+	e.wantStatus(t, []status.Interface{
+		{Name: "awg0"},
+		{Name: "vless", Up: true},
+		{Name: "vless-old"},
+	})
+	if line := e.logLine("not reported by any backend"); line != "" {
+		t.Errorf("unknown-name log while a backend is down: %s", line)
+	}
+}
+
+func TestRunStatusInvalidConfig(t *testing.T) {
+	fb := &fakeBackend{session: &fakeSession{names: []string{"awg0"}}}
+	e := newPassEnv(t, "phone: [awg0, vless]\n", fb.backend("awg-grpc", ".conf"))
+	e.enableStatus()
+	e.run()
+	e.writeConfig("phone: [awg0, vless, awg9\n")
+
+	e.run()
+
+	e.wantStatus(t, []status.Interface{{Name: "awg0", Up: true}, {Name: "vless"}})
+}
+
+func TestRunStatusAllBackendsDown(t *testing.T) {
+	awg := &fakeBackend{openErr: errors.New("no socket")}
+	xray := &fakeBackend{openErr: errors.New("no socket")}
+	e := newPassEnv(t, "phone: [awg0, vless]\n",
+		awg.backend("awg-grpc", ".conf"), xray.backend("xray", ".txt"))
+	e.enableStatus()
+
+	e.run()
+
+	e.wantStatus(t, []status.Interface{{Name: "awg0"}, {Name: "vless"}})
 }
 
 func TestRunStatusNameCollision(t *testing.T) {
@@ -712,10 +810,7 @@ func TestRunStatusNameCollision(t *testing.T) {
 
 	e.run()
 
-	want := string(status.Render([]status.Interface{{Name: "shared"}}))
-	if got := e.statusFile(); got != want {
-		t.Errorf("status file =\n%s\nwant\n%s", got, want)
-	}
+	e.wantStatus(t, []status.Interface{{Name: "shared"}})
 	if len(awg.session.statsCalls)+len(xray.session.statsCalls) != 0 {
 		t.Errorf("Stats was called: %v %v", awg.session.statsCalls, xray.session.statsCalls)
 	}

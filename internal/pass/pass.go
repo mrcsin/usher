@@ -72,7 +72,7 @@ func (p *Pass) Run(ctx context.Context) {
 	p.applyAll(ctx, st, open, byInterface, failed)
 	// A cancelled pass fails every call, so its file would show every interface down.
 	if p.settings.StatusPath != "" && ctx.Err() == nil {
-		p.writeStatus(ctx, st, open, byInterface, prepareFailed, failed)
+		p.writeStatus(ctx, st, open, byInterface, owners, prepareFailed, failed)
 	}
 
 	// A backend that is down hides its interface names, so every unreferenced name could be one.
@@ -126,10 +126,11 @@ func (p *Pass) applyAll(ctx context.Context, st *state.State, open []openBackend
 	}
 }
 
-// writeStatus writes the status file for the interfaces of the open backends. A name that two
-// backends report is written once, so the file holds no duplicate series.
+// writeStatus writes the status file for the interfaces of the open backends, and writes each
+// interface that usher.yml references and no open backend reports as not applied, with no users.
+// A name that two backends report is written once, so the file holds no duplicate series.
 func (p *Pass) writeStatus(ctx context.Context, st *state.State, open []openBackend,
-	byInterface map[string][]string, prepareFailed, failed map[interfaceKey]bool) {
+	byInterface, owners map[string][]string, prepareFailed, failed map[interfaceKey]bool) {
 	var interfaces []status.Interface
 	written := make(map[string]bool)
 	for i, b := range open {
@@ -151,6 +152,11 @@ func (p *Pass) writeStatus(ctx context.Context, st *state.State, open []openBack
 				iface.Users = users
 			}
 			interfaces = append(interfaces, iface)
+		}
+	}
+	for name := range byInterface {
+		if len(owners[name]) == 0 {
+			interfaces = append(interfaces, status.Interface{Name: name})
 		}
 	}
 	if err := atomicfile.Write(p.settings.StatusPath, status.Render(interfaces), 0o644); err != nil {

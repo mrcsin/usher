@@ -180,8 +180,10 @@ handshake carries no traffic after it. A disconnected client reads 0 at most 180
 `rate()` and `increase()` handle the counter resets. A user gets series only on the interfaces
 `usher.yml` lists for that user. When usher cannot read the stats of an interface, it logs
 `reading stats` and leaves the users of that interface out of the file: a missing series
-means unknown, and usher never writes 0 for a value it could not read. An interface that failed
-before `Apply` has no user series. The interfaces of a backend that is down are absent.
+means unknown, and usher never writes 0 for a user value it could not read. An interface that
+failed before `Apply` has no user series. An interface that `usher.yml` references and no open
+backend reports reads 0 and has no user series. An interface of a backend that is down is absent
+when no user references it.
 
 usher keeps no last-seen value. Prometheus derives it from `usher_user_online`; this query gives the
 time of the last sample with value 1 in the last 30 days:
