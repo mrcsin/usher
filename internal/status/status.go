@@ -18,7 +18,8 @@ type UserStats struct {
 	Online   bool
 }
 
-// Interface is the outcome of a pass for one interface. Users is nil when Prepare or Stats failed.
+// Interface is the outcome of a pass for one interface. Users is nil when Prepare or Stats failed,
+// and for an interface that no open backend reports.
 type Interface struct {
 	Name  string
 	Up    bool

@@ -36,18 +36,31 @@ reads only `*.prom` files, so it skips the temporary file of a write in progress
 
 A pass that stops early, for example on a `users.json` error, or that a stop signal interrupts,
 writes no file, and the file keeps the previous content. A stopped usher leaves it the same way.
-node_exporter keeps serving that content, so every interface still reads 1. usher writes no
+node_exporter keeps serving that content, so every interface keeps its last value. usher writes no
 timestamp of its own; node_exporter's `node_textfile_mtime_seconds` for the file stops moving. A
 write error is logged as `writing status file`.
 
 ### Alerts
 
-usher reports most failures by leaving series out, so a rule on `usher_interface_up == 0` alone
-misses them:
+`usher_interface_up` reads 0 for each referenced interface the last pass did not apply, and for
+each interface of an open backend that failed. An unreferenced interface of a backend that is down
+is absent from the file. The cause of a 0 can be any of these: the interface failed, its backend
+is down, or no backend reports it, as after the removal of an Xray inbound. One rule on
+`usher_interface_up == 0` covers them all and needs no interface names. A name in `usher.yml` that
+no backend has, such as a typo, reads 0 until you fix it.
 
-- The interfaces of a backend that is down are absent. The other backend keeps
-  `usher_interface_up` present, so `absent(usher_interface_up)` fires only when every backend is
-  down and the file holds no series. Each interface needs an `absent` rule of its own.
+The log names the cause. `interface failed` and `interface is not reported by any backend` name
+the interface. `backend is down` names only the backend, not its interfaces. usher logs `interface
+is not reported by any backend` only when no backend is down, so an interface that one backend
+stops reporting while the other backend is down reads 0 with no log line of its own.
+
+A value of 0 does not mean that the users cannot connect. An AmneziaWG interface keeps forwarding
+for its enrolled peers while awg-grpc is unreachable.
+
+Two failures do not show as 0:
+
+- `absent(usher_interface_up)` fires when node_exporter serves no `usher_interface_up` series: the
+  file is missing or unreadable.
 - A stale file keeps its last values. Only its age shows the failure.
 
 ```yaml
@@ -57,11 +70,6 @@ groups:
       - alert: UsherInterfaceDown
         expr: usher_interface_up == 0
         for: 2m
-      - alert: UsherInterfaceAbsent
-        expr: >-
-          absent(usher_interface_up{interface="awg0"})
-          or absent(usher_interface_up{interface="vless-reality"})
-        for: 2m
       - alert: UsherStatusEmpty
         expr: absent(usher_interface_up)
         for: 2m
@@ -70,6 +78,4 @@ groups:
         for: 2m
 ```
 
-`UsherInterfaceAbsent` lists the interface names of the deployment; add a term when you add an
-interface to a backend. usher runs a pass at least every 30 s, so 180 s of file age is six missed
-passes.
+usher runs a pass at least every 30 s, so 180 s of file age is six missed passes.
