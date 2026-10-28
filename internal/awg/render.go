@@ -29,6 +29,9 @@ func render(entry state.Entry, iface *awgv1.InterfaceStatus, host netip.Addr, dn
 		dnsList[i] = addr.String()
 	}
 	fmt.Fprintf(&b, "DNS = %s\n", strings.Join(dnsList, ", "))
+	if mtu := iface.GetMtu(); mtu > 0 {
+		fmt.Fprintf(&b, "MTU = %d\n", mtu)
+	}
 
 	for i, p := range iface.GetClientParams() {
 		if strings.ContainsAny(p.GetKey(), "\r\n") || strings.ContainsAny(p.GetValue(), "\r\n") {
